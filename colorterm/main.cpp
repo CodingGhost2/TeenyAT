@@ -16,6 +16,18 @@ const tny_uword SET_CURSOR_VIS = 0x9005;
 const tny_uword SET_TITLE = 0x9006;
 const tny_uword SET_X = 0x9007;
 const tny_uword SET_Y = 0x9008;
+const tny_uword MOVE_E = 0x9010;
+const tny_uword MOVE_SE = 0x9011;
+const tny_uword MOVE_S = 0x9012;
+const tny_uword MOVE_SW = 0x9013;
+const tny_uword MOVE_W = 0x9014;
+const tny_uword MOVE_NW = 0x9015;
+const tny_uword MOVE_N = 0x9016;
+const tny_uword MOVE_NE = 0x9017;
+const tny_uword MOVE = 0x9020;
+
+
+
 
 int x = 0;
 int y = 0;
@@ -29,6 +41,8 @@ int main(int argc, char *argv[]) {
     setConsoleTitle("TeenyAT Color Terminal");
     cls();
 
+    setvbuf(stdout, NULL, _IONBF, 0);
+
     FILE *bin_file = fopen(argv[1], "rb");
 	teenyat t;
 	tny_init_from_file(&t, bin_file, nullptr, bus_write);
@@ -41,7 +55,6 @@ int main(int argc, char *argv[]) {
     cls();
     return EXIT_SUCCESS;
 }
-
 
 void bus_write(teenyat *t, tny_uword addr, tny_word data, uint16_t *delay) {
     switch(addr) {
@@ -79,6 +92,9 @@ void bus_write(teenyat *t, tny_uword addr, tny_word data, uint16_t *delay) {
         y = data.u % trows();
         gotoxy(x, y);
         break;
+    case MOVE:
+        
+        
     default:
         break;
     }
