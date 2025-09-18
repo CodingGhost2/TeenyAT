@@ -34,7 +34,7 @@ int x = 0;
 int y = 0;
 int interp_v = 0;
 
-string title = "";
+string title = "colorterm";
 
 void bus_write(teenyat *t, tny_uword addr, tny_word data, uint16_t *delay);
 
