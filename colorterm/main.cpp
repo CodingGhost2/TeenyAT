@@ -25,12 +25,14 @@ const tny_uword MOVE_NW = 0x9015;
 const tny_uword MOVE_N = 0x9016;
 const tny_uword MOVE_NE = 0x9017;
 const tny_uword MOVE = 0x9020;
-
-
+                /*E,SE, S,SW, W, NW,N,NE*/
+const int dx[8] ={1, 1, 0,-1, -1,-1,-1, 1};
+const int dy[8] ={0, 1, 1, 1, 0, -1,-1,-1};
 
 
 int x = 0;
 int y = 0;
+int interp_v = 0;
 
 string title = "";
 
@@ -92,9 +94,54 @@ void bus_write(teenyat *t, tny_uword addr, tny_word data, uint16_t *delay) {
         y = data.u % trows();
         gotoxy(x, y);
         break;
+
     case MOVE:
+        interp_v = ((data.s % 8) + 8) % 8;
+        x = (x + dx[interp_v]) % tcols();
+        y = (y + dy[interp_v]) % trows();
+        gotoxy(x,y);
+        break;
         
-        
+    case MOVE_E:
+        x = ((x + dx[0]) % tcols() + tcols()) % tcols();
+        y = ((y + dy[0]) % trows() + trows()) % trows();
+        gotoxy(x,y);
+        break;
+    case MOVE_SE:
+        x = ((x + dx[1]) % tcols() + tcols()) % tcols();
+        y = ((y + dy[1]) % trows() + trows()) % trows();
+        gotoxy(x,y);
+        break;
+    case MOVE_S:
+        x = ((x + dx[2]) % tcols() + tcols()) % tcols();
+        y = ((y + dy[2]) % trows() + trows()) % trows();
+        gotoxy(x,y);
+        break;
+    case MOVE_SW:
+        x = ((x + dx[3])% tcols() + tcols()) % tcols();
+        y = ((y + dy[3])% trows() + trows()) % trows();
+        gotoxy(x,y);
+        break;
+    case MOVE_W:
+        x = ((x + dx[4]) % tcols() + tcols()) % tcols();
+        y = ((y + dy[4]) % trows() + trows()) % trows();
+        gotoxy(x,y);
+        break;
+    case MOVE_NW:
+        x = ((x + dx[5]) % tcols() + tcols()) % tcols();
+        y = ((y + dy[5]) % trows() + trows()) % trows();
+        gotoxy(x,y);
+        break;
+    case MOVE_N:
+        x = ((x + dx[6]) % tcols() + tcols()) % tcols();
+        y = ((y + dy[6]) % trows() + trows()) % trows();
+        gotoxy(x,y);
+        break;
+    case MOVE_NE:
+        x = ((x + dx[7]) % tcols() + tcols()) % tcols();
+        y = ((y + dy[7]) % trows() + trows()) % trows();
+        gotoxy(x,y);
+        break;
     default:
         break;
     }
