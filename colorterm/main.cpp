@@ -97,8 +97,8 @@ void bus_write(teenyat *t, tny_uword addr, tny_word data, uint16_t *delay) {
 
     case MOVE:
         interp_v = ((data.s % 8) + 8) % 8;
-        x = (x + dx[interp_v]) % tcols();
-        y = (y + dy[interp_v]) % trows();
+        x = ((x + dx[interp_v]) % tcols() + tcols()) % tcols();
+        y = ((y + dy[interp_v]) % trows() + trows()) % trows();
         gotoxy(x,y);
         break;
         
