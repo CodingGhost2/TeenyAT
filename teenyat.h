@@ -20,6 +20,25 @@ extern "C" {
 
 #endif // __cplusplus
 
+/*
+ * On Windows, builds are slightly complicated.
+ * - If building the TeenyAT shared library (DLL), you must define TNY_BUILD_DLL.
+ * - If using the TeenyAT shared library (DLL), you must define TNY_DLL.
+ * - If linking the static library or including the teenyat.h/c directly in
+ *   your program, just ensure neither TNY_BUILD_DLL or TNY_DLL are defined.
+ */
+#ifdef _WIN32
+	#ifdef TNY_BUILD_DLL
+		#define TNY_EXPORT __declspec(dllexport)
+	#elif TNY_DLL
+		#define TNY_EXPORT __declspec(dllimport)
+	#else
+		#define TNY_EXPORT
+	#endif
+#else
+  #define TNY_EXPORT
+#endif
+
 typedef struct teenyat teenyat;
 
 typedef uint16_t tny_uword;
@@ -340,6 +359,7 @@ struct teenyat {
  *   Upon failed initialization, the t->initialized member can be assumed false,
  *   but the state of all other members is undefined.
  */
+TNY_EXPORT 
 bool tny_init_from_file(teenyat *t, FILE *bin_file,
                         TNY_READ_FROM_BUS_FNPTR bus_read,
                         TNY_WRITE_TO_BUS_FNPTR bus_write);
@@ -375,6 +395,7 @@ bool tny_init_from_file(teenyat *t, FILE *bin_file,
   * 
   *  
   */ 
+ TNY_EXPORT 
  bool tny_init_clocked(teenyat *t, FILE *bin_file,
 					   TNY_READ_FROM_BUS_FNPTR bus_read,
 					   TNY_WRITE_TO_BUS_FNPTR bus_write,
@@ -403,6 +424,7 @@ bool tny_init_from_file(teenyat *t, FILE *bin_file,
 *   but the state of all other members is undefined.
 * 
 */ 
+TNY_EXPORT 
 bool tny_init_unclocked(teenyat *t, FILE *bin_file,
 						TNY_READ_FROM_BUS_FNPTR bus_read,
 						TNY_WRITE_TO_BUS_FNPTR bus_write);
@@ -426,6 +448,7 @@ bool tny_init_unclocked(teenyat *t, FILE *bin_file,
 * @note
 * 	This function also sets the current pace count 
 */				  
+TNY_EXPORT 
 bool tny_set_initial_pace_cnt(teenyat *t,int16_t pace_cnt);
 
 /**
@@ -442,6 +465,7 @@ bool tny_set_initial_pace_cnt(teenyat *t,int16_t pace_cnt);
  *   True on success, flase otherwise.
  *   Attempting to reset an unitialized TeenyAT will always return false.
  */
+TNY_EXPORT 
 bool tny_reset(teenyat *t);
 
 /**
@@ -468,6 +492,7 @@ bool tny_reset(teenyat *t);
  * @param t
  *   The TeenyAT instance
  */
+TNY_EXPORT 
 void tny_clock(teenyat *t);
 
 /**
@@ -486,6 +511,7 @@ void tny_clock(teenyat *t);
  * @note
  *   A NULL tny_word pointer argument identifies that port is to be ignored.
  */
+TNY_EXPORT 
 void tny_get_ports(teenyat *t, tny_word *a, tny_word *b);
 
 /**
@@ -505,6 +531,7 @@ void tny_get_ports(teenyat *t, tny_word *a, tny_word *b);
  * @note
  *   A NULL tny_word pointer argument identifies that port is to be ignored.
  */
+TNY_EXPORT 
 void tny_set_ports(teenyat *t, tny_word *a, tny_word *b);
 
 /**
@@ -517,6 +544,7 @@ void tny_set_ports(teenyat *t, tny_word *a, tny_word *b);
  * @param port_change
  *   Callback for handling external port level changes
  */
+TNY_EXPORT 
 void tny_port_change(teenyat *t, TNY_PORT_CHANGE_FNPTR port_change);
 
 #ifdef __cplusplus
