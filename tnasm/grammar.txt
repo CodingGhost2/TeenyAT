@@ -90,6 +90,7 @@ code_1_inst ::= BTC.
 code_1_inst ::= BTF.
 code_1_inst ::= CMP.
 code_1_inst ::= LUP.
+code_1_inst ::= DLY.
 
 code_1_mem_inst ::= LOD.
 
@@ -109,6 +110,7 @@ code_2_inst ::= BTC.
 code_2_inst ::= BTF.
 code_2_inst ::= CMP.
 code_2_inst ::= LUP.
+code_2_inst ::= DLY.
 
 code_2_mem_inst ::= LOD.
 
@@ -130,6 +132,7 @@ code_3_inst ::= SET.
 code_3_inst ::= BTF.
 code_3_inst ::= CMP.
 code_3_inst ::= LUP.
+code_3_inst ::= DLY.
 
 code_3_mem_inst ::= LOD.
 
@@ -149,16 +152,20 @@ code_8_inst ::= STR.
 code_9_inst ::= PSH.
 code_9_inst ::= DLY.
 code_9_inst ::= CAL.
+code_9_inst ::= INT.
 
 code_10_inst ::= PSH.
 code_10_inst ::= DLY.
 code_10_inst ::= CAL.
+code_10_inst ::= INT.
 
 code_11_inst ::= PSH.
 code_11_inst ::= DLY.
 code_11_inst ::= CAL.
+code_11_inst ::= INT.
 
 code_12_inst ::= RET.
+code_12_inst ::= RTI.
 
 code_13_inst ::= JMP.
 code_13_inst ::= JE.

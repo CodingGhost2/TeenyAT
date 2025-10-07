@@ -37,8 +37,9 @@ int interp_v = 0;
 
 string title = "colorterm";
 
-void graphic(teenyat *t, tny_uword addr, tny_word data, uint16_t * delay) {
+void graphic(teenyat *t, tny_uword addr, int x, int y, uint16_t * delay) {
     
+
     return;
 }
 
