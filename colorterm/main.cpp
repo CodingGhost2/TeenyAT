@@ -3,6 +3,7 @@
 
 #include "teenyat.h"
 #include "rogueutil.h"
+#include "tigr.h"
 
 using namespace std;
 using namespace rogueutil;
@@ -36,6 +37,11 @@ int interp_v = 0;
 
 string title = "colorterm";
 
+void graphic(teenyat *t, tny_uword addr, tny_word data, uint16_t * delay) {
+    
+    return;
+}
+
 void bus_write(teenyat *t, tny_uword addr, tny_word data, uint16_t *delay);
 
 int main(int argc, char *argv[]) { 
@@ -57,6 +63,7 @@ int main(int argc, char *argv[]) {
     cls();
     return EXIT_SUCCESS;
 }
+
 
 void bus_write(teenyat *t, tny_uword addr, tny_word data, uint16_t *delay) {
     switch(addr) {
