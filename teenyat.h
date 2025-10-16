@@ -425,40 +425,6 @@ bool tny_init_from_file(teenyat *t, FILE *bin_file,
                         TNY_WRITE_TO_BUS_FNPTR bus_write);
 
 /**
-<<<<<<< HEAD
-  * @brief
-  *   Initialize a clock instance of TeenyAT with a given MHz clock rate.
-  * 
-  * @param t
-  *   The TeenyAT instance to initialize
-  *
-  * @param bin_file
-  *   The pre-assembled .bin file to load and execute
-  *
-  * @param bus_read
-  *   Callback function for handling read requests
-  *
-  * @param bus_write
-  *   Callback function for handling write requests
-  * 
-  * @param MHz
-  *   The simulated clock speed in MHz 
-  *
-  * @return
-  *   True on success, flase otherwise.
-  *
-  * @note
-  *   Upon failed initialization, the t->initialized member can be assumed false,
-  *   but the state of all other members is undefined.
-  * 
-  * @note
-  *   During testing it was found that most host machines can run 1MHz effectively
-  * 	 so that was chosen as the standard clock rate.
-  * 
-  *  
-  */ 
- TNY_EXPORT 
-=======
  * @brief
  *   Initialize a clock instance of TeenyAT with a given MHz clock rate.
  *
@@ -488,39 +454,12 @@ bool tny_init_from_file(teenyat *t, FILE *bin_file,
  *   During testing it was found that most host machines can run 1MHz effectively
  *   so that was chosen as the standard clock rate.
  */
->>>>>>> d760ef1380bc57398c4ead59b5b5bdfca5e2c5d2
  bool tny_init_clocked(teenyat *t, FILE *bin_file,
 					   TNY_READ_FROM_BUS_FNPTR bus_read,
 					   TNY_WRITE_TO_BUS_FNPTR bus_write,
 					   uint16_t MHz);
 
 /**
-<<<<<<< HEAD
-* @brief
-*   Initialize an unclock instance of TeenyAT.
-* 
-* @param t
-*   The TeenyAT instance to initialize
-*
-* @param bin_file
-*   The pre-assembled .bin file to load and execute
-*
-* @param bus_read
-*   Callback function for handling read requests
-*
-* @param bus_write
-*   Callback function for handling write requests
-* 
-* @return
-*   True on success, flase otherwise.
-*
-* @note
-*   Upon failed initialization, the t->initialized member can be assumed false,
-*   but the state of all other members is undefined.
-* 
-*/ 
-TNY_EXPORT 
-=======
  * @brief
  *   Initialize an unclocked instance of TeenyAT.
  *
@@ -543,33 +482,11 @@ TNY_EXPORT
  *   Upon failed initialization, the t->initialized member can be assumed false,
  *   but the state of all other members is undefined.
  */
->>>>>>> d760ef1380bc57398c4ead59b5b5bdfca5e2c5d2
 bool tny_init_unclocked(teenyat *t, FILE *bin_file,
 						TNY_READ_FROM_BUS_FNPTR bus_read,
 						TNY_WRITE_TO_BUS_FNPTR bus_write);
 
 /**
-<<<<<<< HEAD
-* @brief
-*   Helper function for setting the initial pace
-*   count of a clocked instance of the TeenyAT
-* 
-* 
-* @param t
-*   The TeenyAT instance to set pace count of 
-* 
-* @param pace_cnt
-*   The pace count to be set
-* 
-* @return
-*   True on success, false otherwise.
-*   Attempting to reset an unitialized TeenyAT will always return false.
-* 
-* @note
-* 	This function also sets the current pace count 
-*/				  
-TNY_EXPORT 
-=======
  * @brief
  *   Helper function for setting the initial pace
  *   count of a clocked instance of the TeenyAT
@@ -587,8 +504,7 @@ TNY_EXPORT
  * @note
  *   This function also sets the current pace count
  */
->>>>>>> d760ef1380bc57398c4ead59b5b5bdfca5e2c5d2
-bool tny_set_initial_pace_cnt(teenyat *t,int16_t pace_cnt);
+bool tny_set_initial_pace_cnt(teenyat *t, int16_t pace_cnt);
 
 /**
  * @brief

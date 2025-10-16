@@ -19,6 +19,21 @@
 .const MOVE_N         0x9016
 .const MOVE_NE        0x9017
 .const MOVE           0x9020
+.const SPRITE_SET     0x9024;        
+.const Animation_Stand = 0x9025;  
+.const Animation_MoveL = 0x9026;   
+.const Animation_MoveR = 0x9027; 
+.const Animation_UP = 0x9028;   
+
+.const GFX_INIT = 0x9100;       
+.const GFX_CLEAR = 0x9101;    
+.const GFX_SET_COLOR = 0x9102;   
+.const GFX_SET_POS = 0x9103;     
+.const GFX_PUT_PIXEL = 0x9104;   
+.const GFX_PRESENT = 0x9105;   
+.const COIN = 0x9106;         
+.const COIN_SET_POS = 0x9107;
+.const COIN_STATUS = 0x9108;  
 
 !main
     ;;; Set the character to 'X'
@@ -35,38 +50,9 @@
     ;;; Print the first 'X' at the random spot
     str [PRINT_CHAR], rA
 
-!loop_start
-    ;;; Move East and print
-    str [MOVE_E], rZ         ; Correctly triggers the move
-    str [PRINT_CHAR], rA
 
-    ;;; Move South-East and print
-    str [MOVE_SE], rZ
-    str [PRINT_CHAR], rA
+!main
+    set 
 
-    ;;; Move South and print
-    str [MOVE_S], rZ
-    str [PRINT_CHAR], rA
-
-    ;;; Move South-West and print
-    str [MOVE_SW], rZ
-    str [PRINT_CHAR], rA
-
-    ;;; Move West and print
-    str [MOVE_W], rZ
-    str [PRINT_CHAR], rA
-
-    ;;; Move North-West and print
-    str [MOVE_NW], rZ
-    str [PRINT_CHAR], rA
-
-    ;;; Move North and print
-    str [MOVE_N], rZ
-    str [PRINT_CHAR], rA
-
-    ;;; Move North-East and print
-    str [MOVE_NE], rZ
-    str [PRINT_CHAR], rA
-
-    ;;; Jump back to the beginning of the loop to repeat
-    jmp !loop_start
+!animation 
+    set rA

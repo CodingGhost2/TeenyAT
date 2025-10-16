@@ -322,9 +322,6 @@ void tny_set_ports(teenyat *t, tny_word *a, tny_word *b) {
 	return;
 }
 
-<<<<<<< HEAD
-TNY_EXPORT
-=======
 void tny_external_interrupt(teenyat* t, tny_uword external_interrupt) {
 	/*
 	 * Make a mask with a 1 in the position of the external interrupt number
@@ -377,7 +374,6 @@ void handle_interrupts(teenyat *t) {
 	return;
 }
 
->>>>>>> d760ef1380bc57398c4ead59b5b5bdfca5e2c5d2
 void tny_clock(teenyat *t) {
 	/* Get initial time of our clock cycles 
 	 * and initialize our first pace start 
