@@ -94,7 +94,7 @@ struct Player {
 };
 Player player = {10.0f, 250.0f, 0.0f, 0.0f, 0, false};
 const float RESPAWN_X = 10.0f;
-const float RESPAWN_Y = 250.0f; // Set this to the safe starting Y position
+const float RESPAWN_Y = 270.0f; // Set this to the safe starting Y position
 
 // ============================================================================
 // LEVEL DATA
