@@ -7,6 +7,7 @@
 
 #include <iostream>
 #include <cstdlib>
+#include <cstdio>
 
 #include "teenyat.h"
 #include "rogueutil.h"
@@ -107,17 +108,17 @@ const int LEVEL_HEIGHT = (SCREEN_HEIGHT_PIXELS / TILE_SIZE) + 1; // 10 + 1 = 11
 // Level map: 0 = air, 1 = solid ground, 2 = flagpole (win condition)
 // This map is now 11 rows high and 20 columns wide to fit the screen
 int level[LEVEL_HEIGHT][LEVEL_WIDTH] = {
-	{0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}, // Row 0 (Y)
-    {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}, // Row 1 (Clouds - 1 for cloud tile)
-    {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}, // Row 2
-    {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}, // Row 3
-    {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}, // Row 4 (Cloud)
-    {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}, // Row 5
-    {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}, // Row 6
-    {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}, // Row 7E
-    {0,0,0,0,0,1,1,0,0,0,0,0,0,1,1,0,0,2,1,0}, // Row 8 (Platforms/Goal - Correct from image)
-    {1,1,1,1,3,1,1,1,1,1,1,1,3,3,3,1,1,1,1,1}, // Row 9 (Now ALL Solid Ground)
-    {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1}  // Row 10 (Still ALL Solid Ground)
+	{1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1}, // Row 0 (Y)
+    {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1}, // Row 1 (Clouds - 1 for cloud tile)
+    {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1}, // Row 2
+    {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1}, // Row 3
+    {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,2,0,1}, // Row 4 (Cloud)
+    {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,1,0,1}, // Row 5
+    {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,1}, // Row 6
+    {1,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,1,0,1}, // Row 7E
+    {1,0,0,0,0,1,1,0,0,0,0,0,1,1,1,0,1,1,1,1}, // Row 8 (Platforms/Goal - Correct from image)
+    {1,1,1,0,0,1,1,1,1,1,1,0,0,0,0,0,1,1,1,1}, // Row 9 (Now ALL Solid Ground)
+    {1,1,1,3,3,1,1,1,1,1,1,3,3,3,3,1,1,1,1,1}  // Row 10 (Still ALL Solid Ground)
 };
 
 // ============================================================================
@@ -170,6 +171,13 @@ int main(int argc, char *argv[]) {
 	teenyat t;
 	tny_init_from_file(&t, bin_file, bus_read, bus_write);
 	fclose(bin_file);
+    
+	// Optional: allow overriding the number of VM steps per frame for debugging
+	int vm_steps = 1000;
+	if (argc >= 3) {
+		vm_steps = atoi(argv[2]);
+		printf("INFO: vm_steps set to %d (from argv)\n", vm_steps);
+	}
 	
 	// --- Initialize Graphics Window ---
 	screen = tigrWindow(SCREEN_WIDTH_PIXELS, SCREEN_HEIGHT_PIXELS, "TeenyAT Game Engine", 0);
@@ -191,6 +199,22 @@ int main(int argc, char *argv[]) {
 		
 		// Limit delta time to prevent huge jumps
 		if (deltaTime > 0.1f) deltaTime = 0.1f;
+		if (deltaTime < 0.0f) deltaTime = 0.0f; // guard against negative readings
+
+		// Use a fixed physics timestep (frame-based) to avoid small noisy deltaTime
+		// causing jitter when mixing frame-based constants.
+		const float physDT = 1.0f; // treat velocities/accelerations as per-frame units
+
+		// Simple debug counter to periodically print player state
+		static int debugCounter = 0;
+		debugCounter++;
+		if ((debugCounter % 30) == 0) {
+			// Print to console so you can see how the physics values change
+			printf("DEBUG: dt=%.4f pos=(%.2f,%.2f) vel=(%.2f,%.2f) onGround=%d tile=(%d,%d) keys=L:%d R:%d J:%d\\n",
+				deltaTime, player.x, player.y, player.velocityX, player.velocityY,
+				player.onGround ? 1 : 0, player.TileX, player.TileY,
+				keyLeft ? 1 : 0, keyRight ? 1 : 0, keyJump ? 1 : 0);
+		}
 		
 		// ========================================================================
 		// 1. HANDLE EVENTS (Input)
@@ -202,28 +226,38 @@ int main(int argc, char *argv[]) {
 		// ========================================================================
 		// 2. CLOCK THE TEENYAT CPU
 		// ========================================================================
-		for (int i = 0; i < 1000; i++) {
+		for (int i = 0; i < vm_steps; i++) {
 			tny_clock(&t);
+		}
+
+		// Fallback direct input control (keyboard)
+		// If the loaded TeenyAT program does not issue movement writes, this
+		// allows testing physics and input directly from the keyboard.
+		if (keyLeft)  player.velocityX -= MOVE_ACCELERATION;
+		if (keyRight) player.velocityX += MOVE_ACCELERATION;
+		if (keyJump && player.onGround) {
+			player.velocityY = JUMP_IMPULSE;
+			player.onGround = false;
 		}
 		
 		// ========================================================================
 		// 3. UPDATE GAME STATE (Physics)
 		// ========================================================================
 		
-		// Apply gravity
-		player.velocityY += GRAVITY * deltaTime;
-		
-		// Apply friction to horizontal movement
+		// Apply gravity (frame-based)
+		player.velocityY += GRAVITY * physDT;
+
+		// Apply friction to horizontal movement (frame-based)
 		player.velocityX *= FRICTION;
-		
+
 		// Clamp velocities to maximum values
 		if (player.velocityX > MAX_VELOCITY_X) player.velocityX = MAX_VELOCITY_X;
 		if (player.velocityX < -MAX_VELOCITY_X) player.velocityX = -MAX_VELOCITY_X;
 		if (player.velocityY > MAX_VELOCITY_Y) player.velocityY = MAX_VELOCITY_Y;
-		
-		// Calculate new position
-		float newX = player.x + player.velocityX * deltaTime;
-		float newY = player.y + player.velocityY * deltaTime;
+
+		// Calculate new position (frame-based)
+		float newX = player.x + player.velocityX * physDT;
+		float newY = player.y + player.velocityY * physDT;
 		
 		// Collision detection with level tiles
 		player.onGround = false;
@@ -249,7 +283,18 @@ int main(int argc, char *argv[]) {
 		if (!horizontalCollision) {
 			player.x = newX;
 		} else {
+			// Resolve horizontal collision by snapping to tile edge to avoid small jitter
+			if (player.velocityX > 0) {
+				// moving right, snap to left side of blocking tile
+				int collideTile = tileXRight;
+				player.x = collideTile * TILE_SIZE - 16; // 16 = player width
+			} else if (player.velocityX < 0) {
+				// moving left, snap to right side of blocking tile
+				int collideTile = tileXLeft;
+				player.x = (collideTile + 1) * TILE_SIZE;
+			}
 			player.velocityX = 0;
+			printf("DEBUG: HCOLLIDE snapX=%.2f velX=%.2f\n", player.x, player.velocityX);
 		}
 		
 		// Check vertical collision
@@ -276,7 +321,19 @@ int main(int argc, char *argv[]) {
 		if (!verticalCollision) {
 			player.y = newY;
 		} else {
+			// Resolve vertical collision by snapping to tile edge
+			if (player.velocityY > 0) {
+				// falling, snap to top of blocking tile
+				int collideTileY = tileYNewBottom;
+				player.y = collideTileY * TILE_SIZE - 16; // place on top
+				player.onGround = true;
+			} else if (player.velocityY < 0) {
+				// moving up, snap to bottom of blocking tile
+				int collideTileY = tileYNewTop;
+				player.y = (collideTileY + 1) * TILE_SIZE;
+			}
 			player.velocityY = 0;
+			printf("DEBUG: VCOLLIDE snapY=%.2f velY=%.2f onGround=%d\n", player.y, player.velocityY, player.onGround ? 1 : 0);
 		}
 		
 		// Update player tile position for win condition checking
@@ -287,7 +344,15 @@ int main(int argc, char *argv[]) {
 		if (player.TileX >= 0 && player.TileX < LEVEL_WIDTH && 
 			player.TileY >= 0 && player.TileY < LEVEL_HEIGHT) {
 			if (level[player.TileY][player.TileX] == 2) {
+				// Player reached the win tile: print a message, close the window and exit.
 				tigrPrint(screen, tfont, 250, 150, tigrRGB(255, 255, 0), "YOU WIN!");
+				// Ensure frame is presented so the player sees the message briefly
+				tigrUpdate(screen);
+				// Cleanup and exit immediately
+				tigrFree(screen);
+				resetColor();
+				cls();
+				return EXIT_SUCCESS;
 			}
 
 			if (level[player.TileY][player.TileX] == 3) {
@@ -318,7 +383,7 @@ int main(int argc, char *argv[]) {
 								 TILE_SIZE, TILE_SIZE, tigrRGB(139, 69, 19));
 				} else if (level[y][x] == 2) {
 					tigrFillRect(screen, x * TILE_SIZE, y * TILE_SIZE,
-								 TILE_SIZE, TILE_SIZE, tigrRGB(255, 215, 0));
+								 TILE_SIZE, TILE_SIZE, tigrRGB(255, 0, 0));
 				}
 			}
 		}
@@ -359,6 +424,27 @@ void bus_read(teenyat *t, tny_uword addr, tny_word *data, uint16_t *delay) {
 // BUS WRITE HANDLER
 // ============================================================================
 void bus_write(teenyat *t, tny_uword addr, tny_word data, uint16_t *delay) {
+	// Debug logging policy:
+	// - Always log movement writes (useful for debugging physics input).
+	// - For terminal/animation addresses (0x9000..0x902F), only log when the
+	//   value actually changes to reduce repetitive spam (e.g. repeated writes
+	//   of 0x0000 from a VM routine).
+	if (addr == MOVE_E || addr == MOVE_W || addr == MOVE_N) {
+		printf("BUS_WRITE: addr=0x%04X data=0x%04X\\n", addr, data.u);
+	} else if (addr >= 0x9000 && addr <= 0x902F) {
+		// remember last value per terminal/animation register
+		static tny_uword lastTerminal[0x30];
+		static bool termInit = false;
+		if (!termInit) {
+			for (int i = 0; i < 0x30; ++i) lastTerminal[i] = 0xFFFF; // sentinel
+			termInit = true;
+		}
+		int idx = addr - 0x9000;
+		if (lastTerminal[idx] != data.u) {
+			printf("BUS_WRITE: addr=0x%04X data=0x%04X\\n", addr, data.u);
+			lastTerminal[idx] = data.u;
+		}
+	}
 	switch(addr) {
     // Legacy terminal commands (harmless, but unused in graphics mode)
 	case SET_FG_COLOR:
