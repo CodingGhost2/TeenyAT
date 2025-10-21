@@ -343,7 +343,6 @@ int main(int argc, char *argv[]) {
 // ============================================================================
 void bus_read(teenyat *t, tny_uword addr, tny_word *data, uint16_t *delay) {
 	data->u = 0;
-	
 	switch(addr) {
 		case KEY_INPUT:
 			if (keyLeft) 	data->u |= (1 << 0);
@@ -361,110 +360,60 @@ void bus_read(teenyat *t, tny_uword addr, tny_word *data, uint16_t *delay) {
 // ============================================================================
 void bus_write(teenyat *t, tny_uword addr, tny_word data, uint16_t *delay) {
 	switch(addr) {
-	
-	// Terminal Control Commands
+    // Legacy terminal commands (harmless, but unused in graphics mode)
 	case SET_FG_COLOR:
 		setColor(data.u);
 		break;
-		
 	case SET_BG_COLOR:
 		setBackgroundColor(data.u);
 		break;
-		
 	case CLEAR_SCREEN:
 		cls();
 		x = 0;
 		y = 0;
 		break;
-		
 	case SET_CHAR:
 		setChar(data.u);
 		break;
-		
 	case PRINT_CHAR:
 		cout << (char)(data.bytes.byte0);
 		x = (x + 1) % LEVEL_WIDTH;
 		gotoxy(x, y);
 		break;
-		
 	case SET_CURSOR_VIS:
 		setCursorVisibility(data.u);
 		break;
-		
 	case SET_TITLE:
 		title += (char)(data.bytes.byte0);
 		setConsoleTitle(title.c_str());
 		break;
-		
 	case SET_X:
 		x = data.u % LEVEL_WIDTH;
 		gotoxy(x, y);
 		break;
-		
 	case SET_Y:
 		y = data.u % LEVEL_HEIGHT;
 		gotoxy(x, y);
 		break;
 
-	// Movement Commands (Terminal Mode - Legacy)
-	case MOVE:
-		interp_v = ((data.s % 8) + 8) % 8;
-		x = ((x + dx[interp_v]) % LEVEL_WIDTH + LEVEL_WIDTH) % LEVEL_WIDTH;
-		y = ((y + dy[interp_v]) % LEVEL_HEIGHT + LEVEL_HEIGHT) % LEVEL_HEIGHT;
-		gotoxy(x,y);
-		break;
-		
 	// Physics-Based Movement Commands
 	case MOVE_E:
 		player.velocityX += MOVE_ACCELERATION;
 		break;
-		
 	case MOVE_W:
 		player.velocityX -= MOVE_ACCELERATION;
 		break;
-		
 	case MOVE_N:
 		if (player.onGround) {
 			player.velocityY = JUMP_IMPULSE;
 			player.onGround = false;
 		}
 		break;
-	
-	case SPRITE_SET:
-		player.spriteIndex = data.u;
-		break;
-	
+
 	// Animation Control
-	case Animation_Stand:
-		player.spriteIndex = 0; 	// Sprite 0 = standing
-		break;
-		
-	case Animation_MoveL:
-		player.spriteIndex = 1; 	// Sprite 1 = moving left
-		break;
-		
-	case Animation_MoveR:
-		player.spriteIndex = 2; 	// Sprite 2 = moving right
-		break;
-		
-	case Animation_UP:
-		player.spriteIndex = 3; 	// Sprite 3 = jumping
-		break;
-	
-	// Coin Control (TODO: Implement coin system)
-	case COIN:
-		// TODO: Spawn/interact with coin
-		break;
-		
-	case COIN_SET_POS:
-		// TODO: Set coin position (extract X, Y from data)
-		break;
-		
-	case COIN_STATUS:
-		// TODO: Check/update coin status
-		break;
-	
-	default:
-		break;
+	case Animation_Stand: player.spriteIndex = 0; break;
+	case Animation_MoveL: player.spriteIndex = 1; break;
+	case Animation_MoveR: player.spriteIndex = 2; break;
+	case Animation_UP:    player.spriteIndex = 3; break;
 	}
 }
