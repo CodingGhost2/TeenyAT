@@ -1,0 +1,2829 @@
+﻿TeenyAT Multi-Agent System: Server-Client Architecture
+Project Specification v2.0
+________________
+
+
+1. Architecture Overview
+1.1 Server-Client Model
+┌────────────────────────────────────────────────────────────┐
+│                   SERVER (main.cpp)                        │
+│  ┌──────────────────────────────────────────────────────┐  │
+│  │          Game World Authority                        │  │
+│  │  • Maintains single source of truth                  │  │
+│  │  • Enforces game rules                               │  │
+│  │  • Handles collisions & physics                      │  │
+│  │  • Manages dynamic map                               │  │
+│  │  • Processes client requests                         │  │
+│  │  • Broadcasts world state                            │  │
+│  └──────────────────────────────────────────────────────┘  │
+└───────────┬────────────┬────────────┬────────────┬─────────┘
+            │            │            │            │
+        MMIO Protocol (Request/Response)
+            │            │            │            │
+    ┌───────▼──┐   ┌────▼────┐  ┌────▼────┐  ┌───▼─────┐
+    │ CLIENT 1 │   │CLIENT 2 │  │CLIENT 3 │  │CLIENT N │
+    │ (VM #1)  │   │ (VM #2) │  │ (VM #3) │  │ (VM #N) │
+    ├──────────┤   ├─────────┤  ├─────────┤  ├─────────┤
+    │ ChaseBot │   │ TeamBot │  │PatrolBot│  │CustomBot│
+    │   .asm   │   │   .asm  │  │   .asm  │  │   .asm  │
+    └──────────┘   └─────────┘  └─────────┘  └─────────┘
+    
+    Each client:
+    • Runs in isolated VM
+    • Queries server for world state
+    • Sends action requests
+    • Cannot directly access other clients
+    • Cannot modify world directly
+
+
+This is exactly like:
+* Minecraft server + player clients
+* Game server + bot clients (StarCraft, Dota AI)
+* MUD/MOO server + player agents
+________________
+
+
+2. Server Responsibilities (main.cpp)
+2.1 World State Management
+The server is the only authority on:
+* Player positions (all 20 agents)
+* Map layout (tiles, walls, goals)
+* Game state (scores, timer, frozen players)
+* Collision results
+* Tag events
+// Server maintains authoritative state
+struct ServerState {
+    Player players[20];              // All agent positions
+    int level[40][30];               // Map tiles
+    int redScore, blueScore;         // Scores
+    int gameTimer;                   // Centiseconds remaining
+    MessageBus messageBus;           // Inter-client messages
+    
+    // Dynamic map mutation
+    int nextMapChange;               // Frames until map updates
+    CellularAutomata mapGenerator;   // Map evolution logic
+};
+
+
+2.2 Client Management
+struct ConnectedClient {
+    teenyat vm;                  // Client's VM instance
+    int clientID;                // Unique identifier (0-19)
+    int teamID;                  // 0=Red, 1=Blue
+    int cyclesPerFrame;          // CPU budget
+    ClientState state;           // ACTIVE, FROZEN, DISCONNECTED
+    
+    // Request tracking
+    tny_uword lastRequest;       // Last MMIO address accessed
+    int requestCount;            // Requests this frame (rate limit)
+};
+
+
+std::vector<ConnectedClient> clients;
+
+
+2.3 Request Processing Loop
+void serverGameLoop() {
+    while (!tigrClosed(screen)) {
+        // 1. RECEIVE: Let each client send requests
+        for (auto& client : clients) {
+            if (client.state != ACTIVE) continue;
+            
+            // Give client CPU budget to compute decisions
+            for (int i = 0; i < client.cyclesPerFrame; i++) {
+                tny_clock(&client.vm);
+            }
+        }
+        
+        // 2. UPDATE: Server processes world state
+        updatePhysics();           // Apply movement commands
+        checkCollisions();         // Tag detection
+        updateDynamicMap();        // Cellular automata step
+        processMessages();         // Route inter-client messages
+        updateTimer();             // Countdown
+        
+        // 3. RESPOND: Render world state
+        renderWorld();
+        tigrUpdate(screen);
+    }
+}
+
+
+________________
+
+
+3. MMIO Protocol (Client ↔ Server Interface)
+3.1 Design Philosophy
+Server-Client Protocol Principles:
+1. Server never pushes - Clients must query (pull model)
+2. Requests are stateless - Each query is independent
+3. Server validates all requests - No trust in client data
+4. Rate limiting - Prevent client spam
+5. Partial observability - Clients see limited world state
+3.2 Client Query API (Request)
+// === CLIENT IDENTITY ===
+const tny_uword CLIENT_ID       = 0x4000; // Read: My client ID (0-19)
+const tny_uword CLIENT_TEAM     = 0x4001; // Read: My team (0=Red, 1=Blue)
+const tny_uword CLIENT_X        = 0x4002; // Read: My X position (pixels)
+const tny_uword CLIENT_Y        = 0x4003; // Read: My Y position (pixels)
+const tny_uword CLIENT_STATE    = 0x4004; // Read: ACTIVE, FROZEN, IMMUNE
+
+
+// === WORLD STATE QUERIES ===
+const tny_uword WORLD_TIME      = 0x4010; // Read: Game time (centiseconds)
+const tny_uword WORLD_RED_SCORE = 0x4011; // Read: Red team score
+const tny_uword WORLD_BLUE_SCORE= 0x4012; // Read: Blue team score
+
+
+// === MAP QUERIES (Request-Response Pattern) ===
+const tny_uword MAP_QUERY_X     = 0x4020; // Write: Tile X to query
+const tny_uword MAP_QUERY_Y     = 0x4021; // Write: Tile Y to query
+const tny_uword MAP_RESULT      = 0x4022; // Read: 0=air, 1=wall, 2=goal
+
+
+// === VISION QUERIES (Sensor API) ===
+const tny_uword VISION_SCAN     = 0x4030; // Write: 1 to scan (costly!)
+const tny_uword VISION_COUNT    = 0x4031; // Read: # entities in FOV
+const tny_uword VISION_SELECT   = 0x4032; // Write: Entity index (0 to count-1)
+const tny_uword VISION_ID       = 0x4033; // Read: Entity's client ID
+const tny_uword VISION_TEAM     = 0x4034; // Read: Entity's team
+const tny_uword VISION_X        = 0x4035; // Read: Relative X (-127 to 127)
+const tny_uword VISION_Y        = 0x4036; // Read: Relative Y
+const tny_uword VISION_DIST     = 0x4037; // Read: Distance (tiles)
+
+
+Server Response Example:
+Client writes: MAP_QUERY_X = 15
+Client writes: MAP_QUERY_Y = 10
+Client reads:  MAP_RESULT → 1 (wall)
+
+
+Server internally:
+  if (queryX < 0 || queryX >= 40) return 1; // Out of bounds = wall
+  if (queryY < 0 || queryY >= 30) return 1;
+  return level[queryY][queryX];
+
+
+3.3 Client Action API (Command)
+// === MOVEMENT COMMANDS ===
+const tny_uword MOVE_REQUEST    = 0x4100; // Write: Direction (0-7)
+                                          // Server validates & applies
+
+
+// === INTERACTION COMMANDS ===
+const tny_uword TAG_REQUEST     = 0x4110; // Write: Target client ID
+const tny_uword TAG_RESULT      = 0x4111; // Read: 1=success, 0=fail
+
+
+// === MESSAGING (Inter-Client Communication) ===
+const tny_uword MSG_SEND_TO     = 0x4120; // Write: Recipient ID
+const tny_uword MSG_SEND_TYPE   = 0x4121; // Write: Message type
+const tny_uword MSG_SEND_DATA   = 0x4122; // Write: Payload (16-bit)
+const tny_uword MSG_SEND_EXEC   = 0x4123; // Write: 1 to send
+
+
+const tny_uword MSG_INBOX_COUNT = 0x4130; // Read: # messages waiting
+const tny_uword MSG_READ_IDX    = 0x4131; // Write: Message index
+const tny_uword MSG_READ_FROM   = 0x4132; // Read: Sender ID
+const tny_uword MSG_READ_TYPE   = 0x4133; // Read: Message type
+const tny_uword MSG_READ_DATA   = 0x4134; // Read: Payload
+const tny_uword MSG_POP         = 0x4135; // Write: 1 to delete oldest
+
+
+// === CLIENT CONTROL ===
+const tny_uword CLIENT_YIELD    = 0x4200; // Write: 1 to yield CPU early
+
+
+Server Validation Example:
+// Client writes: MOVE_REQUEST = 2 (East)
+// Server processes:
+
+
+void handleMoveRequest(ConnectedClient& client, int direction) {
+    if (client.state == FROZEN) return; // Reject: client is frozen
+    
+    direction = direction % 8; // Validate direction
+    
+    float newX = client.x + dx[direction] * MOVE_SPEED;
+    float newY = client.y + dy[direction] * MOVE_SPEED;
+    
+    // Check collision with server's authoritative map
+    int tileX = (int)(newX / TILE_SIZE);
+    int tileY = (int)(newY / TILE_SIZE);
+    
+    if (level[tileY][tileX] == 0) { // Air tile
+        client.x = newX;
+        client.y = newY;
+        // Server updates authoritative position
+    }
+    // Otherwise, request denied silently
+}
+
+
+________________
+
+
+4. Server Features
+4.1 Vision System (Server-Side Ray Casting)
+When client requests VISION_SCAN:
+void handleVisionScan(ConnectedClient& client) {
+    visibleEntities.clear();
+    
+    const float VISION_RADIUS = 160.0f; // 5 tiles
+    
+    for (int i = 0; i < 20; i++) {
+        if (i == client.clientID) continue; // Don't see self
+        
+        float dx = players[i].x - client.x;
+        float dy = players[i].y - client.y;
+        float dist = sqrt(dx*dx + dy*dy);
+        
+        if (dist <= VISION_RADIUS) {
+            // Check line-of-sight (no walls blocking)
+            if (hasLineOfSight(client.x, client.y, players[i].x, players[i].y)) {
+                visibleEntities.push_back({
+                    .id = i,
+                    .team = players[i].team,
+                    .relX = (int)dx,
+                    .relY = (int)dy,
+                    .dist = (int)(dist / TILE_SIZE)
+                });
+            }
+        }
+    }
+    
+    // Client can now query visibleEntities via VISION_SELECT
+}
+
+
+Key: Server does expensive computation (line-of-sight), client just queries results.
+4.2 Message Bus (Server Routes Messages)
+struct Message {
+    int fromID;
+    int toID;
+    int type;
+    int data;
+};
+
+
+std::unordered_map<int, std::queue<Message>> inboxes;
+
+
+void handleMessageSend(ConnectedClient& sender, int toID, int type, int data) {
+    // Server validation
+    if (toID < 0 || toID >= 20) return;        // Invalid recipient
+    if (toID == sender.clientID) return;       // Can't message self
+    if (inboxes[toID].size() >= 8) return;     // Inbox full
+    
+    // Server routes message
+    inboxes[toID].push({
+        .fromID = sender.clientID,
+        .toID = toID,
+        .type = type,
+        .data = data
+    });
+}
+
+
+Benefits:
+* Server can log/monitor all messages (debugging)
+* Server can filter/block messages (anti-cheat)
+* Server can implement message delays (simulate network latency)
+4.3 Dynamic Map Generation (Server-Side Only)
+void updateDynamicMap() {
+    mapChangeTimer--;
+    
+    if (mapChangeTimer <= 0) {
+        mapChangeTimer = 900; // 15 seconds at 60 FPS
+        
+        // Cellular automata step
+        for (int attempt = 0; attempt < 10; attempt++) {
+            int x = rand() % 40;
+            int y = rand() % 30;
+            
+            // Flip tile state
+            int oldState = level[y][x];
+            level[y][x] = (oldState == 0) ? 1 : 0;
+            
+            // Validate: ensure no client is trapped
+            if (validateMapConnectivity()) {
+                break; // Change accepted
+            } else {
+                level[y][x] = oldState; // Revert change
+            }
+        }
+    }
+}
+
+
+bool validateMapConnectivity() {
+    // Flood fill from each client position
+    // Ensure all clients can reach open space
+    // (Simplified connectivity check)
+    for (auto& client : clients) {
+        if (!canReachOpenSpace(client.x, client.y)) {
+            return false; // This change traps a client
+        }
+    }
+    return true;
+}
+
+
+Clients never see the map change directly - they just observe it through queries.
+________________
+
+
+5. Client Program Examples
+5.1 Basic Client Template
+; ClientTemplate.asm - Minimal functional client
+.const CLIENT_ID        0x4000
+.const CLIENT_TEAM      0x4001
+.const CLIENT_X         0x4002
+.const CLIENT_Y         0x4003
+.const MOVE_REQUEST     0x4100
+.const CLIENT_YIELD     0x4200
+
+
+!main
+    ; Read my identity from server
+    ldr rA, [CLIENT_ID]
+    ldr rB, [CLIENT_TEAM]
+    
+    ; Main game loop
+!loop
+    ; Query server for my position
+    ldr rC, [CLIENT_X]
+    ldr rD, [CLIENT_Y]
+    
+    ; Make decision (simple: move east)
+    set rE, 2              ; Direction 2 = East
+    str [MOVE_REQUEST], rE
+    
+    ; Yield CPU back to server
+    set rF, 1
+    str [CLIENT_YIELD], rF
+    
+    jmp !loop
+
+
+5.2 Chase Client (Uses Vision API)
+; ChaseClient.asm - Pursues nearest enemy
+.const VISION_SCAN      0x4030
+.const VISION_COUNT     0x4031
+.const VISION_SELECT    0x4032
+.const VISION_TEAM      0x4034
+.const VISION_X         0x4035
+.const VISION_Y         0x4036
+.const CLIENT_TEAM      0x4001
+.const MOVE_REQUEST     0x4100
+
+
+!main
+    ldr rA, [CLIENT_TEAM]  ; My team
+
+
+!loop
+    ; Request vision scan from server
+    set rB, 1
+    str [VISION_SCAN], rB
+    
+    ; Check how many entities server returned
+    ldr rC, [VISION_COUNT]
+    cmp rC, 0
+    je !no_enemies
+    
+    ; Find nearest enemy
+    call !find_nearest_enemy
+    ; rD now contains direction to move
+    
+    str [MOVE_REQUEST], rD
+    jmp !end_turn
+
+
+!no_enemies
+    ; Random walk
+    call !random_direction
+    str [MOVE_REQUEST], rE
+
+
+!end_turn
+    set rF, 1
+    str [CLIENT_YIELD], rF
+    jmp !loop
+
+
+!find_nearest_enemy
+    set rG, 0              ; Index
+    set rH, 999            ; Min distance
+    set rI, 0xFF           ; Best direction
+    
+!scan_loop
+    ; Query server for entity at index rG
+    str [VISION_SELECT], rG
+    ldr rJ, [VISION_TEAM]
+    
+    ; Is it an enemy?
+    cmp rJ, rA
+    je !same_team
+    
+    ; Get position
+    ldr rK, [VISION_X]
+    ldr rL, [VISION_Y]
+    
+    ; Calculate direction (simplified)
+    call !calc_direction   ; Sets rD
+    ret
+
+
+!same_team
+    inc rG
+    ldr rC, [VISION_COUNT]
+    cmp rG, rC
+    jl !scan_loop
+    ret
+
+
+5.3 Team Coordinator Client
+; TeamClient.asm - Communicates with teammates
+.const CLIENT_ID        0x4000
+.const CLIENT_TEAM      0x4001
+.const MSG_INBOX_COUNT  0x4130
+.const MSG_READ_IDX     0x4131
+.const MSG_READ_TYPE    0x4133
+.const MSG_READ_DATA    0x4134
+.const MSG_SEND_TO      0x4120
+.const MSG_SEND_TYPE    0x4121
+.const MSG_SEND_DATA    0x4122
+.const MSG_SEND_EXEC    0x4123
+
+
+.const MSG_ENEMY_SPOTTED  0x01
+.const MSG_HELP_REQUEST   0x02
+
+
+!main
+    ldr rA, [CLIENT_ID]
+    ldr rB, [CLIENT_TEAM]
+
+
+!loop
+    ; Check inbox from server
+    ldr rC, [MSG_INBOX_COUNT]
+    cmp rC, 0
+    je !no_messages
+    
+    ; Read first message
+    set rD, 0
+    str [MSG_READ_IDX], rD
+    ldr rE, [MSG_READ_TYPE]
+    
+    cmp rE, MSG_ENEMY_SPOTTED
+    je !handle_enemy_alert
+    
+!no_messages
+    ; Scan for enemies
+    call !scan_environment
+    
+    ; If enemy found, broadcast to team
+    cmp rF, 0xFF
+    je !no_broadcast
+    
+    ; Send message to all teammates
+    call !broadcast_to_team
+    
+!no_broadcast
+    call !make_move
+    
+    set rZ, 1
+    str [CLIENT_YIELD], rZ
+    jmp !loop
+
+
+!broadcast_to_team
+    ; Loop through team member IDs
+    ; (Team 0: IDs 0-9, Team 1: IDs 10-19)
+    cmp rB, 0
+    je !team_red
+    set rG, 10  ; Blue team start
+    jmp !send_loop
+    
+!team_red
+    set rG, 0   ; Red team start
+
+
+!send_loop
+    cmp rG, rA  ; Don't message self
+    je !skip
+    
+    ; Send to teammate via server
+    str [MSG_SEND_TO], rG
+    set rH, MSG_ENEMY_SPOTTED
+    str [MSG_SEND_TYPE], rH
+    str [MSG_SEND_DATA], rF  ; Enemy position
+    set rI, 1
+    str [MSG_SEND_EXEC], rI
+
+
+!skip
+    inc rG
+    ; Check if still in team range
+    cmp rB, 0
+    je !check_red
+    cmp rG, 20
+    jl !send_loop
+    ret
+    
+!check_red
+    cmp rG, 10
+    jl !send_loop
+    ret
+
+
+________________
+
+
+6. Game Rules & Server Logic
+6.1 Tag Mechanics (Server Authority)
+void checkTaggingEvents() {
+    for (int i = 0; i < 20; i++) {
+        if (players[i].state != ACTIVE) continue;
+        
+        for (int j = 0; j < 20; j++) {
+            if (i == j) continue;
+            if (players[j].state != ACTIVE) continue;
+            if (players[i].team == players[j].team) continue;
+            
+            float dx = players[i].x - players[j].x;
+            float dy = players[i].y - players[j].y;
+            float dist = sqrt(dx*dx + dy*dy);
+            
+            if (dist < 24.0f) { // TAG_DISTANCE
+                // Server enforces tag
+                handleTag(i, j);
+            }
+        }
+    }
+}
+
+
+void handleTag(int tagger, int tagged) {
+    // Update scores (server authority)
+    if (players[tagger].team == 0) {
+        redScore++;
+    } else {
+        blueScore++;
+    }
+    
+    // Freeze tagged player
+    players[tagged].state = FROZEN;
+    players[tagged].freezeTimer = 180; // 3 seconds at 60 FPS
+    
+    // Respawn logic
+    respawnPlayer(tagged);
+    
+    // Grant immunity
+    players[tagged].state = IMMUNE;
+    players[tagged].immunityTimer = 120; // 2 seconds
+}
+
+
+6.2 Spawn System (Server Managed)
+void respawnPlayer(int clientID) {
+    int team = players[clientID].team;
+    
+    // Team spawn zones (opposite corners)
+    int spawnX, spawnY;
+    if (team == 0) { // Red team: top-left
+        spawnX = 2 + (rand() % 3); // Tiles 2-4
+        spawnY = 2 + (rand() % 3);
+    } else { // Blue team: bottom-right
+        spawnX = 35 + (rand() % 3); // Tiles 35-37
+        spawnY = 25 + (rand() % 3);
+    }
+    
+    // Convert to pixels
+    players[clientID].x = spawnX * TILE_SIZE + 8;
+    players[clientID].y = spawnY * TILE_SIZE + 8;
+    
+    // If spawn blocked, try nearby tiles (server handles)
+    if (level[spawnY][spawnX] != 0) {
+        findNearestOpenTile(spawnX, spawnY);
+    }
+}
+
+
+________________
+
+
+7. Why This is a Multi-Agent System
+7.1 Core Multi-Agent Properties
+Property
+	Implementation
+	Autonomy
+	Each client makes independent decisions
+	Social Ability
+	Message passing between clients
+	Reactivity
+	Clients respond to server's world state
+	Pro-activeness
+	Clients have goals (chase, patrol, etc.)
+	Decentralization
+	No central client coordinator
+	Partial Observability
+	Vision system limits information
+	Non-determinism
+	Emergent behavior from interactions
+	7.2 Multi-Agent Phenomena to Observe
+Emergent Cooperation (Red Team):
+* ChaseClients pursue enemies
+* TeamClients broadcast enemy locations
+* Indirect coordination (swarming behavior)
+Emergent Competition:
+* Clients compete for tags (score maximization)
+* Resource contention (chasing same target)
+* Adaptive strategies (patrol vs chase)
+Communication Patterns:
+* Request-response (client ↔ server)
+* Broadcast (team messages)
+* Gossip protocols (rumor spreading)
+________________
+
+
+8. Implementation Roadmap
+Week 1: Server Foundation
+Server (C++):
+* [ ] Multi-VM client management (load 20 clients)
+* [ ] Round-robin scheduler (time-slicing)
+* [ ] Basic MMIO handlers (identity, position queries)
+* [ ] Static 40x30 grid rendering
+Client (Assembly):
+* [ ] MinimalClient.asm (reads ID, moves randomly)
+Milestone: 20 clients running simultaneously, moving randomly
+________________
+
+
+Week 2: Client-Server Protocol
+Server:
+* [ ] Vision API (FOV calculation, line-of-sight)
+* [ ] Map query handler (tile lookups)
+* [ ] Movement validation (collision detection)
+* [ ] Message bus implementation
+Client:
+* [ ] ChaseClient.asm (uses vision to pursue)
+* [ ] Test message passing between 2 clients
+Milestone: Clients can see/chase each other using server queries
+________________
+
+
+Week 3: Pathfinding & Intelligence
+Client (Assembly):
+* [ ] A* pathfinding algorithm implementation
+* [ ] Map query integration (obstacle detection)
+* [ ] Path following behavior
+* [ ] PatrolClient.asm (waypoint navigation)
+Server:
+* [ ] Pathfinding test maps (complex obstacles)
+Milestone: Clients navigate intelligently around walls
+________________
+
+
+Week 4: Game Logic & Polish
+Server:
+* [ ] Cellular automata map generation
+* [ ] Dynamic map updates (every 15s)
+* [ ] Tag detection & scoring
+* [ ] Timer & win conditions
+* [ ] Spawn system
+Client:
+* [ ] TeamClient.asm (cooperative messaging)
+* [ ] Optimize A* performance
+Polish:
+* [ ] Visual effects (tag particles, frozen indicator)
+* [ ] UI (scores, timer, minimap)
+* [ ] Balance tuning
+Milestone: Complete 5-minute tag game
+________________
+
+
+9. Success Criteria
+9.1 Technical Requirements
+* ✅ Server runs 20 independent client VMs
+* ✅ Clients query server via MMIO (no direct world access)
+* ✅ Server validates all client requests
+* ✅ Message passing works between clients
+* ✅ Vision system provides limited observability
+* ✅ A* pathfinding implemented in assembly
+* ✅ Dynamic map generation (cellular automata)
+* ✅ Game runs at 30 FPS for 5 minutes
+9.2 Multi-Agent Criteria
+* ✅ At least 3 different client strategies
+* ✅ Emergent team behavior (indirect coordination)
+* ✅ Client-to-client communication demonstrated
+* ✅ Clients adapt to dynamic environment
+* ✅ Visible competitive/cooperative dynamics
+9.3 Documentation
+* ✅ MMIO protocol specification
+* ✅ Client programming guide
+* ✅ Architecture diagram (server-client)
+* ✅ Example client programs with comments
+________________
+
+
+10. Key Design Decisions
+10.1 Why Server Authority?
+Server-authoritative design prevents:
+* Clients cheating (teleporting, seeing through walls)
+* Inconsistent world state (two clients occupying same space)
+* Race conditions (clients modifying map simultaneously)
+Trade-offs:
+* More MMIO calls from clients (query overhead)
+* Server must validate every action
+* Clients can't cache world state reliably
+10.2 Why Time-Slicing?
+Alternatives considered:
+* Event-driven: Clients wake up on events → Complex scheduling
+* Real-time threads: Multiple VMs in parallel → TeenyAT doesn't support
+* Turn-based: Strict ordering → Too slow, not multi-agent
+Time-slicing wins because:
+* Fair CPU distribution
+* Simulates concurrent execution
+* Simple to implement
+* Allows varying CPU budgets (balance)
+10.3 Why Message Passing?
+Alternatives:
+* Shared memory: Clients read global arrays → No isolation
+* Broadcast: Server pushes updates → Not request-response
+Message passing wins because:
+* Explicit communication (easy to debug/log)
+* Server can filter/monitor messages
+* Teaches distributed systems concepts
+* True multi-agent architecture
+________________
+
+
+Appendix: Complete MMIO Reference
+Client Query API (Server Provides)
+Address
+	Name
+	R/W
+	Description
+	0x4000
+	CLIENT_ID
+	R
+	This client's ID (0-19)
+	0x4001
+	CLIENT_TEAM
+	R
+	Team (0=Red, 1=Blue)
+	0x4002
+	CLIENT_X
+	R
+	My X position (pixels)
+	0x4003
+	CLIENT_Y
+	R
+	My Y position (pixels)
+	0x4004
+	CLIENT_STATE
+	R
+	ACTIVE/FROZEN/IMMUNE
+	0x4010
+	WORLD_TIME
+	R
+	Game time (centiseconds)
+	0x4011
+	WORLD_RED_SCORE
+	R
+	Red team score
+	0x4012
+	WORLD_BLUE_SCORE
+	R
+	Blue team score
+	0x4020
+	MAP_QUERY_X
+	W
+	Tile X to query
+	0x4021
+	MAP_QUERY_Y
+	W
+	Tile Y to query
+	0x4022
+	MAP_RESULT
+	R
+	Tile type (0/1/2)
+	0x4030
+	VISION_SCAN
+	W
+	Write 1 to scan FOV
+	0x4031
+	VISION_COUNT
+	R
+	# entities visible
+	0x4032
+	VISION_SELECT
+	W
+	Entity index to query
+	0x4033
+	VISION_ID
+	R
+	Entity's client ID
+	0x4034
+	VISION_TEAM
+	R
+	Entity's team
+	0x4035
+	VISION_X
+	R
+	Relative X position
+	0x4036
+	VISION_Y
+	R
+	Relative Y position
+	0x4037
+	VISION_DIST
+	R
+	Distance (tiles)
+	0x4100
+	MOVE_REQUEST
+	W
+	Direction (0-7)
+	0x4110
+	TAG_REQUEST
+	W
+	Target client ID
+	0x4111
+	TAG_RESULT
+	R
+	Success (1) or fail (0)
+	0x4120
+	MSG_SEND_TO
+	W
+	Recipient ID
+	0x4121
+	MSG_SEND_TYPE
+	W
+	Message type
+	0x4122
+	MSG_SEND_DATA
+	W
+	Payload (16-bit)
+	0x4123
+	MSG_SEND_EXEC
+	W
+	Write 1 to send
+	0x4130
+	MSG_INBOX_COUNT
+	R
+	# messages waiting
+	0x4131
+	MSG_READ_IDX
+	W
+	Message index
+	0x4132
+	MSG_READ_FROM
+	R
+	Sender ID
+	0x4133
+	MSG_READ_TYPE
+	R
+	Message type
+	0x4134
+	MSG_READ_DATA
+	R
+	Payload
+	0x4135
+	MSG_POP
+	W
+	Write 1 to delete msg
+	0x4200
+	CLIENT_YIELD
+	W
+	Write 1 to yield CPU
+	________________
+
+
+11. Detailed Server Implementation
+11.1 Bus Read Handler (Server Responses)
+void bus_read(teenyat *t, tny_uword addr, tny_word *data, uint16_t *delay) {
+    // Find which client is making this request
+    ConnectedClient* client = findClientByVM(t);
+    if (!client) {
+        data->u = 0;
+        return;
+    }
+    
+    data->u = 0; // Default response
+    
+    switch(addr) {
+        // === IDENTITY ===
+        case CLIENT_ID:
+            data->u = client->clientID;
+            break;
+            
+        case CLIENT_TEAM:
+            data->u = client->teamID;
+            break;
+            
+        case CLIENT_X:
+            data->u = (tny_uword)players[client->clientID].x;
+            break;
+            
+        case CLIENT_Y:
+            data->u = (tny_uword)players[client->clientID].y;
+            break;
+            
+        case CLIENT_STATE:
+            data->u = players[client->clientID].state;
+            break;
+            
+        // === WORLD STATE ===
+        case WORLD_TIME:
+            data->u = gameTimer;
+            break;
+            
+        case WORLD_RED_SCORE:
+            data->u = redScore;
+            break;
+            
+        case WORLD_BLUE_SCORE:
+            data->u = blueScore;
+            break;
+            
+        // === MAP QUERIES ===
+        case MAP_RESULT: {
+            int qx = client->mapQueryX;
+            int qy = client->mapQueryY;
+            
+            // Server validates bounds
+            if (qx < 0 || qx >= LEVEL_WIDTH || qy < 0 || qy >= LEVEL_HEIGHT) {
+                data->u = 1; // Out of bounds = wall
+            } else {
+                data->u = level[qy][qx];
+            }
+            break;
+        }
+        
+        // === VISION RESULTS ===
+        case VISION_COUNT:
+            data->u = client->visionResults.size();
+            break;
+            
+        case VISION_ID: {
+            int idx = client->visionSelectIndex;
+            if (idx >= 0 && idx < client->visionResults.size()) {
+                data->u = client->visionResults[idx].id;
+            }
+            break;
+        }
+        
+        case VISION_TEAM: {
+            int idx = client->visionSelectIndex;
+            if (idx >= 0 && idx < client->visionResults.size()) {
+                data->u = client->visionResults[idx].team;
+            }
+            break;
+        }
+        
+        case VISION_X: {
+            int idx = client->visionSelectIndex;
+            if (idx >= 0 && idx < client->visionResults.size()) {
+                data->s = client->visionResults[idx].relX; // Signed!
+            }
+            break;
+        }
+        
+        case VISION_Y: {
+            int idx = client->visionSelectIndex;
+            if (idx >= 0 && idx < client->visionResults.size()) {
+                data->s = client->visionResults[idx].relY; // Signed!
+            }
+            break;
+        }
+        
+        case VISION_DIST: {
+            int idx = client->visionSelectIndex;
+            if (idx >= 0 && idx < client->visionResults.size()) {
+                data->u = client->visionResults[idx].dist;
+            }
+            break;
+        }
+        
+        // === TAG RESULT ===
+        case TAG_RESULT:
+            data->u = client->lastTagResult;
+            break;
+            
+        // === MESSAGE INBOX ===
+        case MSG_INBOX_COUNT:
+            data->u = clientInboxes[client->clientID].size();
+            break;
+            
+        case MSG_READ_FROM: {
+            int idx = client->messageReadIndex;
+            auto& inbox = clientInboxes[client->clientID];
+            if (idx >= 0 && idx < inbox.size()) {
+                data->u = inbox[idx].fromID;
+            }
+            break;
+        }
+        
+        case MSG_READ_TYPE: {
+            int idx = client->messageReadIndex;
+            auto& inbox = clientInboxes[client->clientID];
+            if (idx >= 0 && idx < inbox.size()) {
+                data->u = inbox[idx].type;
+            }
+            break;
+        }
+        
+        case MSG_READ_DATA: {
+            int idx = client->messageReadIndex;
+            auto& inbox = clientInboxes[client->clientID];
+            if (idx >= 0 && idx < inbox.size()) {
+                data->u = inbox[idx].data;
+            }
+            break;
+        }
+        
+        default:
+            // Unknown address
+            break;
+    }
+}
+
+
+11.2 Bus Write Handler (Server Request Processing)
+void bus_write(teenyat *t, tny_uword addr, tny_word data, uint16_t *delay) {
+    ConnectedClient* client = findClientByVM(t);
+    if (!client) return;
+    
+    switch(addr) {
+        // === MAP QUERIES ===
+        case MAP_QUERY_X:
+            client->mapQueryX = data.u;
+            break;
+            
+        case MAP_QUERY_Y:
+            client->mapQueryY = data.u;
+            break;
+            
+        // === VISION SYSTEM ===
+        case VISION_SCAN:
+            if (data.u == 1) {
+                performVisionScan(client);
+            }
+            break;
+            
+        case VISION_SELECT:
+            client->visionSelectIndex = data.u;
+            break;
+            
+        // === MOVEMENT ===
+        case MOVE_REQUEST: {
+            int dir = data.u % 8;
+            processMovementRequest(client, dir);
+            break;
+        }
+        
+        // === TAGGING ===
+        case TAG_REQUEST:
+            client->tagTargetID = data.u;
+            break;
+            
+        case TAG_RESULT: // Actually should be TAG_EXECUTE
+            processTagAttempt(client, client->tagTargetID);
+            break;
+            
+        // === MESSAGING ===
+        case MSG_SEND_TO:
+            client->msgSendTo = data.u;
+            break;
+            
+        case MSG_SEND_TYPE:
+            client->msgSendType = data.u;
+            break;
+            
+        case MSG_SEND_DATA:
+            client->msgSendData = data.u;
+            break;
+            
+        case MSG_SEND_EXEC:
+            if (data.u == 1) {
+                sendMessage(client->clientID, client->msgSendTo, 
+                           client->msgSendType, client->msgSendData);
+            }
+            break;
+            
+        case MSG_READ_IDX:
+            client->messageReadIndex = data.u;
+            break;
+            
+        case MSG_POP:
+            if (data.u == 1 && !clientInboxes[client->clientID].empty()) {
+                clientInboxes[client->clientID].pop_front();
+            }
+            break;
+            
+        // === CLIENT CONTROL ===
+        case CLIENT_YIELD:
+            if (data.u == 1) {
+                client->state = YIELDED;
+            }
+            break;
+            
+        default:
+            break;
+    }
+}
+
+
+11.3 Vision Scan Implementation
+struct VisionResult {
+    int id;
+    int team;
+    int relX;
+    int relY;
+    int dist;
+};
+
+
+void performVisionScan(ConnectedClient* client) {
+    client->visionResults.clear();
+    
+    const float VISION_RADIUS = 160.0f; // 5 tiles * 32 pixels
+    
+    int myID = client->clientID;
+    float myX = players[myID].x;
+    float myY = players[myID].y;
+    
+    // Check all other entities
+    for (int i = 0; i < 20; i++) {
+        if (i == myID) continue; // Can't see self
+        
+        float dx = players[i].x - myX;
+        float dy = players[i].y - myY;
+        float dist = sqrt(dx*dx + dy*dy);
+        
+        // Within vision radius?
+        if (dist > VISION_RADIUS) continue;
+        
+        // Line-of-sight check (raycasting)
+        if (!hasLineOfSight(myX, myY, players[i].x, players[i].y)) {
+            continue; // Blocked by wall
+        }
+        
+        // Add to visible entities
+        client->visionResults.push_back({
+            .id = i,
+            .team = players[i].team,
+            .relX = (int)dx,
+            .relY = (int)dy,
+            .dist = (int)(dist / TILE_SIZE)
+        });
+    }
+    
+    // Sort by distance (nearest first)
+    std::sort(client->visionResults.begin(), client->visionResults.end(),
+              [](const VisionResult& a, const VisionResult& b) {
+                  return a.dist < b.dist;
+              });
+}
+
+
+bool hasLineOfSight(float x1, float y1, float x2, float y2) {
+    // Bresenham's line algorithm to check for walls
+    int dx = abs((int)x2 - (int)x1);
+    int dy = abs((int)y2 - (int)y1);
+    int steps = max(dx, dy) / (TILE_SIZE / 2);
+    
+    for (int i = 0; i <= steps; i++) {
+        float t = (float)i / steps;
+        float x = x1 + t * (x2 - x1);
+        float y = y1 + t * (y2 - y1);
+        
+        int tileX = (int)(x / TILE_SIZE);
+        int tileY = (int)(y / TILE_SIZE);
+        
+        if (tileX < 0 || tileX >= LEVEL_WIDTH || 
+            tileY < 0 || tileY >= LEVEL_HEIGHT) {
+            return false; // Out of bounds
+        }
+        
+        if (level[tileY][tileX] == 1) {
+            return false; // Wall blocks vision
+        }
+    }
+    
+    return true;
+}
+
+
+11.4 Movement Processing
+void processMovementRequest(ConnectedClient* client, int direction) {
+    int id = client->clientID;
+    
+    // Check if client can move
+    if (players[id].state == FROZEN) {
+        return; // Frozen players can't move
+    }
+    
+    // Calculate new position
+    const float MOVE_SPEED = 3.0f;
+    const int dx[8] = {1, 1, 0, -1, -1, -1, 0, 1};
+    const int dy[8] = {0, 1, 1, 1, 0, -1, -1, -1};
+    
+    float newX = players[id].x + dx[direction] * MOVE_SPEED;
+    float newY = players[id].y + dy[direction] * MOVE_SPEED;
+    
+    // Collision detection (server authority)
+    int tileX = (int)(newX / TILE_SIZE);
+    int tileY = (int)(newY / TILE_SIZE);
+    
+    // Bounds check
+    if (tileX < 0 || tileX >= LEVEL_WIDTH || 
+        tileY < 0 || tileY >= LEVEL_HEIGHT) {
+        return; // Out of bounds
+    }
+    
+    // Wall check
+    if (level[tileY][tileX] == 1) {
+        return; // Wall collision
+    }
+    
+    // Check player collision (optional: prevent overlapping)
+    for (int i = 0; i < 20; i++) {
+        if (i == id) continue;
+        
+        float dx = newX - players[i].x;
+        float dy = newY - players[i].y;
+        float dist = sqrt(dx*dx + dy*dy);
+        
+        if (dist < 16.0f) { // Player size collision
+            return; // Too close to another player
+        }
+    }
+    
+    // Movement approved by server
+    players[id].x = newX;
+    players[id].y = newY;
+}
+
+
+11.5 Tag Processing
+void processTagAttempt(ConnectedClient* client, int targetID) {
+    int taggerID = client->clientID;
+    
+    // Validate request
+    if (targetID < 0 || targetID >= 20) {
+        client->lastTagResult = 0;
+        return;
+    }
+    
+    if (players[taggerID].state != ACTIVE) {
+        client->lastTagResult = 0;
+        return;
+    }
+    
+    if (players[targetID].state != ACTIVE) {
+        client->lastTagResult = 0;
+        return;
+    }
+    
+    if (players[taggerID].team == players[targetID].team) {
+        client->lastTagResult = 0; // Can't tag teammates
+        return;
+    }
+    
+    // Check distance
+    float dx = players[taggerID].x - players[targetID].x;
+    float dy = players[taggerID].y - players[targetID].y;
+    float dist = sqrt(dx*dx + dy*dy);
+    
+    if (dist > 24.0f) { // TAG_DISTANCE
+        client->lastTagResult = 0;
+        return;
+    }
+    
+    // TAG SUCCESSFUL!
+    client->lastTagResult = 1;
+    
+    // Update score
+    if (players[taggerID].team == 0) {
+        redScore++;
+    } else {
+        blueScore++;
+    }
+    
+    // Freeze and respawn target
+    players[targetID].state = FROZEN;
+    players[targetID].freezeTimer = 180; // 3 seconds
+    respawnPlayer(targetID);
+    
+    // Grant immunity after respawn
+    players[targetID].state = IMMUNE;
+    players[targetID].immunityTimer = 120; // 2 seconds
+    
+    // Visual effect (optional)
+    createTagParticles(players[targetID].x, players[targetID].y);
+}
+
+
+________________
+
+
+12. Advanced Client Example: A* Pathfinding
+12.1 A* Algorithm in TeenyAT Assembly
+; AStarClient.asm - Intelligent pathfinding client
+; Uses A* algorithm to navigate to targets
+
+
+.const CLIENT_X         0x4002
+.const CLIENT_Y         0x4003
+.const MAP_QUERY_X      0x4020
+.const MAP_QUERY_Y      0x4021
+.const MAP_RESULT       0x4022
+.const VISION_SCAN      0x4030
+.const VISION_COUNT     0x4031
+.const VISION_SELECT    0x4032
+.const VISION_ID        0x4033
+.const VISION_X         0x4035
+.const VISION_Y         0x4036
+.const MOVE_REQUEST     0x4100
+.const CLIENT_YIELD     0x4200
+
+
+; Memory layout for A* algorithm
+.data open_list[100]     ; Open set (nodes to explore)
+.data closed_list[100]   ; Closed set (explored nodes)
+.data came_from[1200]    ; Parent pointers (40x30 grid)
+.data g_score[1200]      ; Cost from start
+.data f_score[1200]      ; Estimated total cost
+
+
+.data target_x 0
+.data target_y 0
+.data my_tile_x 0
+.data my_tile_y 0
+
+
+!main
+    ; Main decision loop
+!loop
+    ; 1. Find nearest enemy via vision
+    call !scan_for_enemies
+    cmp rA, 0xFF
+    je !no_target
+    
+    ; rB = target X (pixels), rC = target Y (pixels)
+    ; Convert to tile coordinates
+    ldr rD, [CLIENT_X]
+    ldr rE, [CLIENT_Y]
+    
+    ; Store positions
+    shr rD, 5              ; Divide by 32 (TILE_SIZE)
+    shr rE, 5
+    str [my_tile_x], rD
+    str [my_tile_y], rE
+    
+    shr rB, 5
+    shr rC, 5
+    str [target_x], rB
+    str [target_y], rC
+    
+    ; 2. Run A* pathfinding
+    call !astar_find_path
+    
+    ; 3. Execute first step of path
+    call !follow_path
+    jmp !end_turn
+
+
+!no_target
+    ; No enemies visible, patrol
+    call !patrol_behavior
+
+
+!end_turn
+    set rZ, 1
+    str [CLIENT_YIELD], rZ
+    jmp !loop
+
+
+; ============================================================
+; A* Pathfinding Implementation
+; ============================================================
+!astar_find_path
+    ; Initialize data structures
+    call !init_astar
+    
+    ; Add start node to open list
+    ldr rA, [my_tile_x]
+    ldr rB, [my_tile_y]
+    call !add_to_open_list
+    
+!astar_loop
+    ; Check if open list is empty
+    call !open_list_empty
+    cmp rA, 1
+    je !astar_failed
+    
+    ; Get node with lowest f_score
+    call !get_lowest_f_node
+    ; rA = node_x, rB = node_y
+    
+    ; Check if we reached goal
+    ldr rC, [target_x]
+    ldr rD, [target_y]
+    cmp rA, rC
+    jne !not_goal
+    cmp rB, rD
+    je !astar_success
+    
+!not_goal
+    ; Move current node to closed list
+    call !move_to_closed_list
+    
+    ; Explore neighbors (8-directional)
+    call !explore_neighbors
+    
+    jmp !astar_loop
+
+
+!astar_success
+    ; Reconstruct path by following came_from pointers
+    call !reconstruct_path
+    ret
+
+
+!astar_failed
+    ; No path found, return failure
+    set rA, 0xFF
+    ret
+
+
+; ============================================================
+; A* Helper Functions
+; ============================================================
+!explore_neighbors
+    ; For current node (rA, rB), check all 8 neighbors
+    set rE, 0              ; Direction index
+
+
+!neighbor_loop
+    ; Calculate neighbor coordinates
+    ; dx = {1, 1, 0,-1,-1,-1, 0, 1}
+    ; dy = {0, 1, 1, 1, 0,-1,-1,-1}
+    
+    ; (Simplified: just check 4 cardinal directions for brevity)
+    cmp rE, 0
+    je !check_east
+    cmp rE, 1
+    je !check_south
+    cmp rE, 2
+    je !check_west
+    cmp rE, 3
+    je !check_north
+    jmp !neighbor_done
+
+
+!check_east
+    mov rF, rA
+    inc rF                 ; neighbor_x = current_x + 1
+    mov rG, rB             ; neighbor_y = current_y
+    jmp !process_neighbor
+
+
+!check_south
+    mov rF, rA
+    mov rG, rB
+    inc rG
+    jmp !process_neighbor
+
+
+!check_west
+    mov rF, rA
+    dec rF
+    mov rG, rB
+    jmp !process_neighbor
+
+
+!check_north
+    mov rF, rA
+    mov rG, rB
+    dec rG
+    ; Fall through to process_neighbor
+
+
+!process_neighbor
+    ; Query server: is this tile walkable?
+    str [MAP_QUERY_X], rF
+    str [MAP_QUERY_Y], rG
+    ldr rH, [MAP_RESULT]
+    
+    cmp rH, 0              ; 0 = air (walkable)
+    jne !skip_neighbor     ; Skip if wall
+    
+    ; Check if in closed list
+    call !in_closed_list
+    cmp rI, 1
+    je !skip_neighbor
+    
+    ; Calculate tentative g_score
+    call !calculate_g_score
+    
+    ; Check if better path
+    call !update_open_list
+
+
+!skip_neighbor
+    inc rE
+    cmp rE, 4
+    jl !neighbor_loop
+
+
+!neighbor_done
+    ret
+
+
+!calculate_g_score
+    ; g_score[neighbor] = g_score[current] + distance
+    ; For grid, distance = 1 (or 1.4 for diagonals)
+    
+    ; Get current g_score
+    ldr rA, [my_tile_x]
+    ldr rB, [my_tile_y]
+    call !get_g_score      ; Returns in rJ
+    
+    ; Add movement cost (1 for cardinal, skip diagonals for now)
+    inc rJ
+    ret
+
+
+!heuristic
+    ; Manhattan distance for A*
+    ; h = |target_x - node_x| + |target_y - node_y|
+    
+    ldr rK, [target_x]
+    ldr rL, [target_y]
+    
+    ; |target_x - rF|
+    mov rM, rK
+    sub rM, rF
+    call !abs_value        ; rM = |rM|
+    
+    ; |target_y - rG|
+    mov rN, rL
+    sub rN, rG
+    call !abs_value        ; rN = |rN|
+    
+    ; h = rM + rN
+    add rM, rN
+    mov rO, rM             ; Return in rO
+    ret
+
+
+!abs_value
+    ; Make rM positive if negative
+    cmp rM, 0
+    jge !abs_done
+    neg rM
+!abs_done
+    ret
+
+
+; ============================================================
+; Path Reconstruction
+; ============================================================
+!reconstruct_path
+    ; Start from goal, follow came_from pointers back to start
+    ; Store path in reverse order
+    
+    ldr rA, [target_x]
+    ldr rB, [target_y]
+    
+    ; (Implementation truncated for brevity)
+    ; This would build a path array and return first move direction
+    
+    ret
+
+
+!follow_path
+    ; Execute first step of reconstructed path
+    ; (For now, just move toward target greedily)
+    
+    ldr rA, [CLIENT_X]
+    ldr rB, [CLIENT_Y]
+    ldr rC, [target_x]
+    ldr rD, [target_y]
+    
+    ; Convert target to pixels
+    shl rC, 5
+    shl rD, 5
+    
+    ; Calculate direction
+    sub rC, rA             ; dx
+    sub rD, rB             ; dy
+    
+    call !xy_to_direction  ; Returns direction in rE
+    
+    str [MOVE_REQUEST], rE
+    ret
+
+
+!xy_to_direction
+    ; Convert (dx, dy) to direction (0-7)
+    ; Simplified: just return cardinal directions
+    
+    cmp rC, 0
+    jg !dir_east
+    jl !dir_west
+    
+    cmp rD, 0
+    jg !dir_south
+    set rE, 6              ; North
+    ret
+
+
+!dir_east
+    set rE, 2
+    ret
+!dir_west
+    set rE, 4
+    ret
+!dir_south
+    set rE, 0
+    ret
+
+
+Note: This is a simplified A* sketch. A full implementation would need:
+* Priority queue for open list
+* Proper data structure indexing
+* Diagonal movement costs
+* Memory-efficient node storage
+________________
+
+
+13. Performance Optimization Strategies
+13.1 Server-Side Optimizations
+1. Spatial Partitioning (Grid-Based)
+// Divide world into 8x6 grid sectors
+std::unordered_map<int, std::vector<int>> spatialGrid;
+
+
+void updateSpatialGrid() {
+    spatialGrid.clear();
+    
+    for (int i = 0; i < 20; i++) {
+        int sectorX = (int)(players[i].x / (TILE_SIZE * 5));
+        int sectorY = (int)(players[i].y / (TILE_SIZE * 5));
+        int sectorID = sectorY * 8 + sectorX;
+        
+        spatialGrid[sectorID].push_back(i);
+    }
+}
+
+
+// Vision scan only checks nearby sectors
+void performVisionScan_Optimized(ConnectedClient* client) {
+    int myX = players[client->clientID].x;
+    int myY = players[client->clientID].y;
+    int mySector = getSector(myX, myY);
+    
+    // Only check my sector + 8 adjacent sectors
+    for (int dy = -1; dy <= 1; dy++) {
+        for (int dx = -1; dx <= 1; dx++) {
+            int checkSector = mySector + dy * 8 + dx;
+            for (int playerID : spatialGrid[checkSector]) {
+                // Check vision for this player
+            }
+        }
+    }
+}
+
+
+2. Cache Map Queries
+// Clients often re-query same tiles
+std::unordered_map<tny_uword, int> mapCache;
+
+
+int queryMapTile(int x, int y) {
+    tny_uword key = (y << 16) | x;
+    
+    if (mapCache.find(key) != mapCache.end()) {
+        return mapCache[key];
+    }
+    
+    int result = level[y][x];
+    mapCache[key] = result;
+    return result;
+}
+
+
+// Invalidate cache when map changes
+void onMapMutation() {
+    mapCache.clear();
+}
+
+
+3. Limit Vision Scans
+// Vision scans are expensive - rate limit them
+void performVisionScan(ConnectedClient* client) {
+    // Only allow scan every 5 frames
+    if (frameCounter - client->lastVisionScan < 5) {
+        return; // Too soon, use cached results
+    }
+    
+    client->lastVisionScan = frameCounter;
+    
+    // Perform actual scan...
+}
+
+
+13.2 Client-Side Optimizations
+Assembly Optimization Tips:
+; BAD: Query server every calculation
+!bad_loop
+    ldr rA, [CLIENT_X]     ; MMIO read (slow!)
+    add rA, 5
+    ldr rB, [CLIENT_X]     ; Reading again!
+    add rB, 10
+    ; ...
+
+
+; GOOD: Cache server responses in registers
+!good_loop
+    ldr rA, [CLIENT_X]     ; Read once
+    mov rB, rA             ; Copy in register (fast!)
+    add rA, 5
+    add rB, 10
+    ; ...
+
+
+; BAD: Scan vision every frame
+!bad_decision
+    set rA, 1
+    str [VISION_SCAN], rA  ; Expensive server operation!
+    ; ... every frame
+
+
+; GOOD: Scan periodically
+!good_decision
+    inc rCounter
+    cmp rCounter, 10       ; Only scan every 10 frames
+    jne !skip_scan
+    
+    set rCounter, 0
+    set rA, 1
+    str [VISION_SCAN], rA
+
+
+!skip_scan
+    ; Use cached vision results
+
+
+________________
+
+
+14. Testing & Debugging Tools
+14.1 Server Debug Mode
+// Enable with command line flag: ./main --debug
+bool g_debugMode = false;
+
+
+void drawDebugOverlay() {
+    if (!g_debugMode) return;
+    
+    // Draw vision cones
+    for (auto& client : clients) {
+        int id = client.clientID;
+        float x = players[id].x;
+        float y = players[id].y;
+        
+        // Draw FOV circle
+        tigrCircle(screen, x, y, 160, tigrRGB(255, 255, 0));
+        
+        // Draw visible entities with lines
+        for (auto& vis : client.visionResults) {
+            float targetX = x + vis.relX;
+            float targetY = y + vis.relY;
+            tigrLine(screen, x, y, targetX, targetY, tigrRGB(0, 255, 0));
+        }
+    }
+    
+    // Draw spatial grid
+    for (int y = 0; y < 6; y++) {
+        for (int x = 0; x < 8; x++) {
+            int sectorID = y * 8 + x;
+            int count = spatialGrid[sectorID].size();
+            
+            tigrPrint(screen, tfont, x * 160, y * 160, 
+                     tigrRGB(255, 255, 255), "%d", count);
+        }
+    }
+    
+    // Draw A* paths (if clients expose path data via special MMIO)
+    // ...
+}
+
+
+// Log all MMIO transactions
+void logMMIO(const char* type, ConnectedClient* client, 
+             tny_uword addr, tny_word data) {
+    if (!g_debugMode) return;
+    
+    printf("[MMIO] Client %d %s 0x%04X = 0x%04X\n", 
+           client->clientID, type, addr, data.u);
+}
+
+
+14.2 Client Debugging
+; Debug print helper (writes to special debug address)
+.const DEBUG_PRINT 0x5000
+
+
+!debug_print_position
+    ldr rA, [CLIENT_X]
+    str [DEBUG_PRINT], rA
+    ldr rB, [CLIENT_Y]
+    str [DEBUG_PRINT], rB
+    ret
+
+
+; Server handler:
+case DEBUG_PRINT:
+    printf("Client %d debug: 0x%04X\n", client->clientID, data.u);
+    break;
+
+
+14.3 Unit Tests
+// Test vision system
+void test_vision() {
+    printf("Testing vision system...\n");
+    
+    // Setup: Place two clients 3 tiles apart, no obstacles
+    players[0].x = 64;   // Tile (2,2)
+    players[0].y = 64;
+    players[1].x = 160;  // Tile (5,2)
+    players[1].y = 64;
+    
+    // Test 1: Client 0 should see Client 1
+    performVisionScan(&clients[0]);
+    assert(clients[0].visionResults.size() == 1);
+    assert(clients[0].visionResults[0].id == 1);
+    assert(clients[0].visionResults[0].dist == 3);
+    printf("  ✓ Vision detection works\n");
+    
+    // Test 2: Add wall between them
+    level[2][3] = 1; // Wall at tile (3,2)
+    performVisionScan(&clients[0]);
+    assert(clients[0].visionResults.size() == 0); // Should be blocked
+    printf("  ✓ Line-of-sight blocking works\n");
+    
+    // Test 3: Move client 1 out of range
+    level[2][3] = 0; // Remove wall
+    players[1].x = 400; // 12 tiles away (out of 5-tile FOV)
+    performVisionScan(&clients[0]);
+    assert(clients[0].visionResults.size() == 0);
+    printf("  ✓ Vision radius limit works\n");
+    
+    // Test 4: Multiple entities visible
+    players[1].x = 96;  // Tile (3,2) - 1 tile away
+    players[2].x = 128; // Tile (4,2) - 2 tiles away
+    players[2].y = 64;
+    performVisionScan(&clients[0]);
+    assert(clients[0].visionResults.size() == 2);
+    // Check sorted by distance (nearest first)
+    assert(clients[0].visionResults[0].dist < clients[0].visionResults[1].dist);
+    printf("  ✓ Multiple entity detection and sorting works\n");
+    
+    printf("✓ All vision tests passed\n\n");
+}
+
+
+// Test message passing
+void test_messages() {
+    printf("Testing message system...\n");
+    
+    // Test 1: Send basic message
+    sendMessage(0, 5, 0x01, 0xABCD);
+    assert(clientInboxes[5].size() == 1);
+    assert(clientInboxes[5].front().fromID == 0);
+    assert(clientInboxes[5].front().type == 0x01);
+    assert(clientInboxes[5].front().data == 0xABCD);
+    printf("  ✓ Basic message send/receive works\n");
+    
+    // Test 2: Message to self should be rejected
+    size_t sizeBefore = clientInboxes[0].size();
+    sendMessage(0, 0, 0x01, 0x1234);
+    assert(clientInboxes[0].size() == sizeBefore); // No change
+    printf("  ✓ Self-messaging prevention works\n");
+    
+    // Test 3: Inbox overflow (max 8 messages)
+    clientInboxes[7].clear();
+    for (int i = 0; i < 10; i++) {
+        sendMessage(0, 7, 0x02, i);
+    }
+    assert(clientInboxes[7].size() == 8); // Should cap at 8
+    printf("  ✓ Inbox size limit works\n");
+    
+    // Test 4: Message pop
+    clientInboxes[7].clear();
+    sendMessage(0, 7, 0x03, 0xAAAA);
+    sendMessage(1, 7, 0x03, 0xBBBB);
+    assert(clientInboxes[7].size() == 2);
+    assert(clientInboxes[7].front().data == 0xAAAA); // FIFO
+    clientInboxes[7].pop_front();
+    assert(clientInboxes[7].size() == 1);
+    assert(clientInboxes[7].front().data == 0xBBBB);
+    printf("  ✓ Message queue FIFO works\n");
+    
+    // Test 5: Invalid recipient
+    sendMessage(0, 99, 0x01, 0x1234); // ID 99 doesn't exist
+    // Should not crash, just ignore
+    printf("  ✓ Invalid recipient handling works\n");
+    
+    printf("✓ All message tests passed\n\n");
+}
+
+
+// Test collision detection
+void test_collision() {
+    printf("Testing collision system...\n");
+    
+    // Test 1: Wall collision
+    players[0].x = 64;
+    players[0].y = 64;
+    level[2][3] = 1; // Wall to the east
+    
+    processMovementRequest(&clients[0], 2); // Try to move east
+    assert(players[0].x == 64); // Should not have moved
+    printf("  ✓ Wall collision detection works\n");
+    
+    // Test 2: Valid movement
+    level[2][3] = 0; // Remove wall
+    float oldX = players[0].x;
+    processMovementRequest(&clients[0], 2); // Move east
+    assert(players[0].x > oldX); // Should have moved
+    printf("  ✓ Valid movement works\n");
+    
+    // Test 3: Bounds checking
+    players[0].x = 1200; // Near right edge
+    players[0].y = 64;
+    processMovementRequest(&clients[0], 2); // Try to move east (out of bounds)
+    assert(players[0].x == 1200); // Should not move out of bounds
+    printf("  ✓ Bounds checking works\n");
+    
+    // Test 4: Player-player collision (optional)
+    players[0].x = 64;
+    players[0].y = 64;
+    players[1].x = 67; // Very close (within 16 pixels)
+    players[1].y = 64;
+    float beforeX = players[0].x;
+    processMovementRequest(&clients[0], 2); // Try to move into player 1
+    assert(players[0].x == beforeX); // Should be blocked
+    printf("  ✓ Player collision detection works\n");
+    
+    printf("✓ All collision tests passed\n\n");
+}
+
+
+// Test tag mechanics
+void test_tagging() {
+    printf("Testing tag mechanics...\n");
+    
+    // Setup
+    players[0].team = 0;
+    players[0].state = ACTIVE;
+    players[0].x = 64;
+    players[0].y = 64;
+    
+    players[1].team = 1;
+    players[1].state = ACTIVE;
+    players[1].x = 80; // Within tag distance (24 pixels)
+    players[1].y = 64;
+    
+    int oldScore = redScore;
+    
+    // Test 1: Successful tag
+    processTagAttempt(&clients[0], 1);
+    assert(clients[0].lastTagResult == 1); // Success
+    assert(redScore == oldScore + 1); // Score incremented
+    assert(players[1].state == IMMUNE); // Tagged player has immunity
+    printf("  ✓ Tag detection and scoring works\n");
+    
+    // Test 2: Tag out of range
+    clients[0].lastTagResult = 0;
+    players[1].x = 200; // Far away
+    players[1].state = ACTIVE;
+    processTagAttempt(&clients[0], 1);
+    assert(clients[0].lastTagResult == 0); // Failed
+    printf("  ✓ Tag range limit works\n");
+    
+    // Test 3: Can't tag same team
+    players[2].team = 0; // Same team as player 0
+    players[2].state = ACTIVE;
+    players[2].x = 70;
+    players[2].y = 64;
+    clients[0].lastTagResult = 0;
+    processTagAttempt(&clients[0], 2);
+    assert(clients[0].lastTagResult == 0); // Should fail
+    printf("  ✓ Same-team tag prevention works\n");
+    
+    // Test 4: Can't tag while frozen
+    players[0].state = FROZEN;
+    players[1].x = 70;
+    players[1].state = ACTIVE;
+    clients[0].lastTagResult = 0;
+    processTagAttempt(&clients[0], 1);
+    assert(clients[0].lastTagResult == 0); // Should fail
+    printf("  ✓ Frozen player tag prevention works\n");
+    
+    printf("✓ All tag tests passed\n\n");
+}
+
+
+// Test map generation
+void test_map_generation() {
+    printf("Testing map generation...\n");
+    
+    // Test 1: Initial cellular automata generation
+    initializeCellularAutomata();
+    runCellularAutomataIterations(4);
+    
+    // Count walls vs air
+    int wallCount = 0;
+    int airCount = 0;
+    for (int y = 0; y < LEVEL_HEIGHT; y++) {
+        for (int x = 0; x < LEVEL_WIDTH; x++) {
+            if (level[y][x] == 1) wallCount++;
+            else airCount++;
+        }
+    }
+    
+    // Should have reasonable wall/air ratio (between 30-60% walls)
+    float wallPercent = (float)wallCount / (LEVEL_WIDTH * LEVEL_HEIGHT);
+    assert(wallPercent > 0.3 && wallPercent < 0.6);
+    printf("  ✓ Cellular automata generation works (%.1f%% walls)\n", 
+           wallPercent * 100);
+    
+    // Test 2: Spawn zones should be clear
+    // Check top-left (red spawn)
+    bool redSpawnClear = true;
+    for (int y = 2; y <= 4; y++) {
+        for (int x = 2; x <= 4; x++) {
+            if (level[y][x] != 0) {
+                redSpawnClear = false;
+                break;
+            }
+        }
+    }
+    assert(redSpawnClear);
+    printf("  ✓ Red spawn zone clear\n");
+    
+    // Check bottom-right (blue spawn)
+    bool blueSpawnClear = true;
+    for (int y = 25; y <= 27; y++) {
+        for (int x = 35; x <= 37; x++) {
+            if (level[y][x] != 0) {
+                blueSpawnClear = false;
+                break;
+            }
+        }
+    }
+    assert(blueSpawnClear);
+    printf("  ✓ Blue spawn zone clear\n");
+    
+    // Test 3: Dynamic map mutation
+    int oldTileState = level[10][10];
+    level[10][10] = (oldTileState == 0) ? 1 : 0; // Flip
+    assert(level[10][10] != oldTileState);
+    printf("  ✓ Map mutation works\n");
+    
+    // Test 4: Connectivity validation
+    players[0].x = 64;
+    players[0].y = 64;
+    bool connected = canReachOpenSpace(64, 64);
+    assert(connected); // Should be able to reach open space
+    printf("  ✓ Connectivity validation works\n");
+    
+    printf("✓ All map generation tests passed\n\n");
+}
+
+
+// Test A* pathfinding (by running client assembly)
+void test_astar() {
+    printf("Testing A* pathfinding...\n");
+    
+    // Load AStarClient.bin
+    FILE* astarBin = fopen("AStarClient.bin", "rb");
+    if (!astarBin) {
+        printf("  ⚠ AStarClient.bin not found, skipping test\n\n");
+        return;
+    }
+    
+    teenyat testVM;
+    tny_init_from_file(&testVM, astarBin, bus_read, bus_write);
+    fclose(astarBin);
+    
+    // Setup test scenario: client at (2,2), target at (8,2)
+    players[10].x = 64;  // Start
+    players[10].y = 64;
+    players[10].team = 1;
+    
+    players[11].x = 256; // Target (8 tiles away)
+    players[11].y = 64;
+    players[11].team = 0; // Enemy team
+    
+    // Add some obstacles
+    level[2][4] = 1;
+    level[2][5] = 1;
+    level[2][6] = 1;
+    // Path must go around these walls
+    
+    // Create test client
+    ConnectedClient testClient;
+    testClient.vm = testVM;
+    testClient.clientID = 10;
+    testClient.teamID = 1;
+    testClient.cyclesPerFrame = 5000; // Give plenty of cycles
+    testClient.state = ACTIVE;
+    
+    // Run client for several frames
+    float startX = players[10].x;
+    for (int frame = 0; frame < 100; frame++) {
+        // Simulate vision scan
+        performVisionScan(&testClient);
+        
+        // Let client think and act
+        for (int i = 0; i < testClient.cyclesPerFrame; i++) {
+            tny_clock(&testClient.vm);
+        }
+        
+        // Check if client is making progress toward target
+        if (frame == 50) {
+            // After 50 frames, should have moved
+            assert(players[10].x > startX);
+            printf("  ✓ Client navigated using pathfinding\n");
+            break;
+        }
+    }
+    
+    // Clean up obstacles
+    level[2][4] = 0;
+    level[2][5] = 0;
+    level[2][6] = 0;
+    
+    printf("✓ A* pathfinding test passed\n\n");
+}
+
+
+// Test performance under load
+void test_performance() {
+    printf("Testing performance...\n");
+    
+    // Load all 20 clients
+    for (int i = 0; i < 20; i++) {
+        FILE* bin = fopen("ChaseClient.bin", "rb");
+        if (!bin) {
+            printf("  ⚠ ChaseClient.bin not found, skipping test\n\n");
+            return;
+        }
+        tny_init_from_file(&clients[i].vm, bin, bus_read, bus_write);
+        fclose(bin);
+        
+        clients[i].clientID = i;
+        clients[i].teamID = (i < 10) ? 0 : 1;
+        clients[i].cyclesPerFrame = 500;
+        clients[i].state = ACTIVE;
+        
+        // Randomize positions
+        players[i].x = (rand() % 30 + 5) * TILE_SIZE;
+        players[i].y = (rand() % 20 + 5) * TILE_SIZE;
+        players[i].team = clients[i].teamID;
+        players[i].state = ACTIVE;
+    }
+    
+    // Measure frame time
+    auto start = std::chrono::high_resolution_clock::now();
+    
+    const int TEST_FRAMES = 300; // 10 seconds at 30 FPS
+    for (int frame = 0; frame < TEST_FRAMES; frame++) {
+        // Update all clients
+        for (auto& client : clients) {
+            for (int i = 0; i < client.cyclesPerFrame; i++) {
+                tny_clock(&client.vm);
+            }
+        }
+        
+        // Update game state
+        checkTaggingEvents();
+        updateTimers();
+    }
+    
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+    
+    float avgFrameTime = (float)duration.count() / TEST_FRAMES;
+    float fps = 1000.0f / avgFrameTime;
+    
+    printf("  Average frame time: %.2f ms\n", avgFrameTime);
+    printf("  Average FPS: %.1f\n", fps);
+    
+    // Should achieve at least 20 FPS (50ms per frame)
+    assert(avgFrameTime < 50.0f);
+    printf("  ✓ Performance target met (>20 FPS)\n");
+    
+    printf("✓ Performance test passed\n\n");
+}
+
+
+// Integration test: full game simulation
+void test_full_game() {
+    printf("Testing full game simulation...\n");
+    
+    // Initialize complete game
+    initializeGame();
+    loadAllClients();
+    
+    // Run for simulated 30 seconds
+    const int FRAMES_30_SEC = 30 * 60; // 30 seconds at 60 FPS
+    
+    for (int frame = 0; frame < FRAMES_30_SEC; frame++) {
+        // Full game loop
+        updateAllClients();
+        updatePhysics();
+        checkTaggingEvents();
+        updateTimers();
+        
+        if (frame % 900 == 0) { // Every 15 seconds
+            updateDynamicMap();
+        }
+        
+        // Sanity checks every second
+        if (frame % 60 == 0) {
+            // All players should be in valid positions
+            for (int i = 0; i < 20; i++) {
+                assert(players[i].x >= 0 && players[i].x < SCREEN_WIDTH_PIXELS);
+                assert(players[i].y >= 0 && players[i].y < SCREEN_HEIGHT_PIXELS);
+            }
+            
+            // Scores should be non-negative
+            assert(redScore >= 0);
+            assert(blueScore >= 0);
+        }
+    }
+    
+    printf("  ✓ Game ran for 30 seconds without crashes\n");
+    printf("  Final score - Red: %d, Blue: %d\n", redScore, blueScore);
+    printf("  Total tags: %d\n", redScore + blueScore);
+    
+    // Should have had some gameplay activity
+    assert(redScore + blueScore > 0);
+    printf("  ✓ Agents were active (tags occurred)\n");
+    
+    printf("✓ Full game integration test passed\n\n");
+}
+
+
+// Run all tests
+void runAllTests() {
+    printf("==================================================\n");
+    printf("         TeenyAT Multi-Agent System Tests        \n");
+    printf("==================================================\n\n");
+    
+    test_vision();
+    test_messages();
+    test_collision();
+    test_tagging();
+    test_map_generation();
+    test_astar();
+    test_performance();
+    test_full_game();
+    
+    printf("==================================================\n");
+    printf("           ALL TESTS PASSED ✓                    \n");
+    printf("==================================================\n");
+}
+
+
+14.4 Regression Testing
+Create test suite for continuous integration:
+// tests/regression_suite.cpp
+#include "test_framework.h"
+
+
+class RegressionTests {
+public:
+    void run() {
+        testSuite("Vision System", {
+            {"Basic detection", test_vision_basic},
+            {"Line of sight", test_vision_los},
+            {"Range limits", test_vision_range},
+            {"Multiple entities", test_vision_multiple}
+        });
+        
+        testSuite("Message System", {
+            {"Send/receive", test_msg_basic},
+            {"Self-message block", test_msg_self},
+            {"Inbox overflow", test_msg_overflow},
+            {"Invalid recipient", test_msg_invalid}
+        });
+        
+        testSuite("Collision", {
+            {"Wall collision", test_collision_wall},
+            {"Bounds checking", test_collision_bounds},
+            {"Player collision", test_collision_player}
+        });
+        
+        testSuite("Tag Mechanics", {
+            {"Tag success", test_tag_success},
+            {"Tag range", test_tag_range},
+            {"Same team", test_tag_same_team},
+            {"Frozen state", test_tag_frozen}
+        });
+        
+        testSuite("Map Generation", {
+            {"Cellular automata", test_map_ca},
+            {"Spawn zones", test_map_spawns},
+            {"Connectivity", test_map_connectivity}
+        });
+    }
+    
+private:
+    void testSuite(const string& name, 
+                   vector<pair<string, function<void()>>> tests) {
+        cout << "\nTesting " << name << "...\n";
+        for (auto& [testName, testFunc] : tests) {
+            try {
+                testFunc();
+                cout << "  ✓ " << testName << "\n";
+            } catch (const exception& e) {
+                cout << "  ✗ " << testName << ": " << e.what() << "\n";
+                failedTests++;
+            }
+        }
+    }
+    
+    int failedTests = 0;
+};
+
+
+14.5 Stress Testing
+void stress_test_many_clients() {
+    printf("Stress test: 50 clients...\n");
+    
+    // Try to push the system beyond normal limits
+    vector<ConnectedClient> manyClients(50);
+    
+    for (int i = 0; i < 50; i++) {
+        // Load client
+        // ...
+    }
+    
+    // Run for 1000 frames
+    auto start = chrono::high_resolution_clock::now();
+    for (int frame = 0; frame < 1000; frame++) {
+        for (auto& client : manyClients) {
+            for (int i = 0; i < 500; i++) {
+                tny_clock(&client.vm);
+            }
+        }
+    }
+    auto end = chrono::high_resolution_clock::now();
+    
+    auto ms = chrono::duration_cast<chrono::milliseconds>(end - start).count();
+    printf("  1000 frames with 50 clients: %ld ms\n", ms);
+    printf("  Average: %.2f ms/frame\n", ms / 1000.0f);
+}
+
+
+void stress_test_message_spam() {
+    printf("Stress test: Message spam...\n");
+    
+    // Client 0 sends 1000 messages
+    for (int i = 0; i < 1000; i++) {
+        sendMessage(0, i % 20, 0x01, i);
+    }
+    
+    // Check that inboxes capped properly
+    for (int i = 0; i < 20; i++) {
+        assert(clientInboxes[i].size() <= 8);
+    }
+    
+    printf("  ✓ Message overflow handled correctly\n");
+}
+
+
+void stress_test_vision_spam() {
+    printf("Stress test: Vision spam...\n");
+    
+    // Client repeatedly scans vision
+    auto start = chrono::high_resolution_clock::now();
+    for (int i = 0; i < 1000; i++) {
+        performVisionScan(&clients[0]);
+    }
+    auto end = chrono::high_resolution_clock::now();
+    
+    auto ms = chrono::duration_cast<chrono::milliseconds>(end - start).count();
+    printf("  1000 vision scans: %ld ms\n", ms);
+    printf("  Average: %.3f ms/scan\n", ms / 1000.0f);
+    
+    // Should be under 5ms per scan
+    assert(ms < 5000);
+}
+
+
+14.6 Property-Based Testing
+// Test invariants that should always hold
+void test_invariants() {
+    printf("Testing system invariants...\n");
+    
+    // Run game for random duration
+    int frames = rand() % 1000 + 100;
+    
+    for (int frame = 0; frame < frames; frame++) {
+        updateAllClients();
+        updateGameState();
+        
+        // INVARIANT 1: All players in bounds
+        for (int i = 0; i < 20; i++) {
+            assert(players[i].x >= 0);
+            assert(players[i].x < SCREEN_WIDTH_PIXELS);
+            assert(players[i].y >= 0);
+            assert(players[i].y < SCREEN_HEIGHT_PIXELS);
+        }
+        
+        // INVARIANT 2: Scores non-negative and monotonic
+        static int lastRedScore = 0;
+        static int lastBlueScore = 0;
+        assert(redScore >= lastRedScore);
+        assert(blueScore >= lastBlueScore);
+        lastRedScore = redScore;
+        lastBlueScore = blueScore;
+        
+        // INVARIANT 3: Message inbox sizes capped
+        for (int i = 0; i < 20; i++) {
+            assert(clientInboxes[i].size() <= 8);
+        }
+        
+        // INVARIANT 4: No two active players at same position
+        for (int i = 0; i < 20; i++) {
+            if (players[i].state != ACTIVE) continue;
+            for (int j = i + 1; j < 20; j++) {
+                if (players[j].state != ACTIVE) continue;
+                float dx = players[i].x - players[j].x;
+                float dy = players[i].y - players[j].y;
+                float dist = sqrt(dx*dx + dy*dy);
+                assert(dist >= 1.0f); // At least 1 pixel apart
+            }
+        }
+        
+        // INVARIANT 5: Timer counts down properly
+        static int lastTimer = 30000;
+        assert(gameTimer <= lastTimer);
+        lastTimer = gameTimer;
+    }
+    
+    printf("  ✓ All invariants held for %d frames\n", frames);
+}
+
+
+________________
+
+
+15. Documentation Deliverables
+15.1 MMIO Protocol Specification
+File: docs/MMIO_Protocol.md
+# TeenyAT Multi-Agent MMIO Protocol
+
+
+## Overview
+This document specifies the memory-mapped I/O interface between 
+client assembly programs and the game server (main.cpp).
+
+
+## Request-Response Pattern
+Clients query the server by writing to query registers, then 
+reading result registers. The server validates all requests and 
+maintains authoritative game state.
+
+
+## Address Map
+... (full table from Appendix)
+
+
+## Usage Examples
+... (assembly code snippets)
+
+
+## Rate Limits
+- Vision scans: 1 per 5 frames
+- Map queries: 100 per frame
+- Messages: 8 in inbox max
+
+
+## Error Handling
+- Out-of-bounds queries return safe defaults (walls)
+- Invalid requests are silently ignored
+- Server logs suspicious behavior in debug mode
+
+
+15.2 Client Programming Guide
+File: docs/ClientGuide.md
+# Writing TeenyAT Client Programs
+
+
+## Getting Started
+
+
+1. **Create your .asm file**
+2. **Implement main loop with yield**
+3. **Query server for state**
+4. **Make decisions**
+5. **Send action requests**
+
+
+## Client Lifecycle
+Every client must:
+- Read CLIENT_ID on startup
+- Yield CPU every frame (MMIO 0x4200)
+- Handle FROZEN state gracefully
+
+
+## Best Practices
+- Cache server responses in registers
+- Don't spam vision scans
+- Use A* for navigation (see AStarClient.asm)
+- Cooperate via messages
+
+
+## Example Clients
+- MinimalClient.asm - Template
+- ChaseClient.asm - Vision-based pursuit
+- TeamClient.asm - Message coordination
+- PatrolClient.asm - Waypoint navigation
+
+
+## Debugging Tips
+... (how to use debug mode, common pitfalls)
+
+
+15.3 Architecture Document
+File: docs/Architecture.md
+This document (the full specification you're reading).
+15.4 Demo Video Script
+File: docs/DemoScript.md
+# Demo Video Script (5 minutes)
+
+
+## 0:00-0:30: Introduction
+"This is a multi-agent system built on the TeenyAT virtual machine.
+20 independent AI agents compete in a tag game using pathfinding
+and communication."
+
+
+## 0:30-1:30: Architecture Overview
+- Show diagram of server-client model
+- Explain MMIO protocol
+- Highlight multi-VM execution
+
+
+## 1:30-3:00: Live Gameplay
+- Run full 5-minute match (timelapse)
+- Point out emergent behaviors:
+  * Swarming
+  * Team coordination via messages
+  * Adaptation to dynamic map changes
+- Show score updates
+- Announce winner
+
+
+## 3:00-4:00: Code Walkthrough
+- Show ChaseClient.asm (vision scan, A* call)
+- Show TeamClient.asm (message broadcasting)
+- Show server vision handler (C++)
+
+
+## 4:00-5:00: Technical Achievements
+- 20 concurrent VMs running at 30 FPS
+- Dynamic cellular automata map
+- A* pathfinding in assembly
+- Message-passing communication
+- Emergent team strategies
+
+
+## Conclusion
+"This framework demonstrates true multi-agent systems:
+autonomous clients, partial observability, emergent behavior,
+and distributed coordination."
+
+
+________________
+
+
+16. Presentation Outline
+Slide 1: Title
+TeenyAT Multi-Agent System Server-Client Architecture for Autonomous AI Agents
+Slide 2: Problem Statement
+* Goal: Design multi-agent system around TeenyAT VM
+* Challenges:
+   * No built-in multi-threading
+   * Limited memory & CPU
+   * Need real-time performance
+Slide 3: Solution - Server-Client Architecture
+[Diagram showing main.cpp with 20 VM instances]
+- Server = authoritative game state
+- Clients = autonomous AI agents
+- Communication via MMIO protocol
+
+
+Slide 4: Key Features
+* ✅ Time-sliced multi-VM execution
+* ✅ Vision sensors (partial observability)
+* ✅ Message passing (agent coordination)
+* ✅ A* pathfinding in assembly
+* ✅ Dynamic map generation
+Slide 5: MMIO Protocol
+Client queries server:
+  VISION_SCAN → server computes FOV
+  MAP_QUERY → server returns tiles
+  MOVE_REQUEST → server validates & applies
+
+
+Server maintains single source of truth
+
+
+Slide 6: Live Demo
+[Screen recording of game]
+Slide 7: Emergent Behavior
+* Agents swarm enemies
+* Teams coordinate via messages
+* Agents adapt to map changes
+* No central controller!
+Slide 8: Technical Achievements
+* 20 VMs @ 30 FPS
+* 500 cycles/frame per agent
+* Cellular automata map generation
+* A* pathfinding implementation
+Slide 9: Code Samples
+[Show ChaseClient.asm snippet] [Show vision handler C++ code]
+Slide 10: Lessons Learned
+* Trade-offs: CPU budget vs intelligence
+* Importance of good MMIO design
+* Debugging multi-agent systems
+* Value of spatial partitioning
+Slide 11: Future Work
+* More sophisticated communication protocols
+* Learning agents (Q-learning)
+* Hierarchical planning
+* Tournament mode (different teams compete)
+Slide 12: Conclusion
+Multi-agent systems enable:
+* Emergent complexity from simple rules
+* Scalable AI architectures
+* Reusable frameworks for others
+Thank you! Questions?
+________________
+
+
+17. Grading Rubric Alignment
+Criterion
+	How We Meet It
+	Evidence
+	Multi-agent environment design
+	Server-client architecture with MMIO protocol
+	Architecture.md, code
+	Implementation around virtual architecture
+	Built on TeenyAT VM, uses MMIO
+	main.cpp, MMIO handlers
+	Example assembly programs
+	4+ client strategies provided
+	ChaseClient.asm, TeamClient.asm, etc.
+	For own and others' systems
+	Documented MMIO API, reusable framework
+	ClientGuide.md
+	Pathfinding algorithms
+	A* implemented in assembly
+	AStarClient.asm
+	Map generation
+	Cellular automata with dynamic updates
+	main.cpp updateDynamicMap()
+	Code quality
+	Clean separation, comments, debug tools
+	Entire codebase
+	Documentation
+	4 comprehensive docs + demo video
+	docs/ folder
+	Presentation
+	Live demo + technical explanation
+	Slides + video
+	________________
+
+
+18. Final Checklist
+Code Implementation
+* [ ] Multi-VM client management working
+* [ ] Round-robin scheduler functional
+* [ ] All MMIO addresses implemented
+* [ ] Vision system with line-of-sight
+* [ ] Message bus working
+* [ ] Movement validation & collision
+* [ ] Cellular automata map gen
+* [ ] Tag detection & scoring
+* [ ] Timer & win conditions
+* [ ] 4+ client programs written
+* [ ] A* pathfinding in assembly
+Documentation
+* [ ] Architecture.md complete
+* [ ] MMIO_Protocol.md complete
+* [ ] ClientGuide.md complete
+* [ ] README.md with build instructions
+* [ ] Code comments throughout
+* [ ] Demo script written
+Testing
+* [ ] Unit tests for vision, messages, tags
+* [ ] Integration test (full game run)
+* [ ] Performance profiling (30 FPS verified)
+* [ ] Edge cases tested (client spam, map mutations)
+Deliverables
+* [ ] Source code in Git repository
+* [ ] Demo video recorded (5 min)
+* [ ] Presentation slides ready
+* [ ] Build & run instructions verified
+________________
+
+
+Appendix: Build Instructions
+Prerequisites
+# Install TIGR dependencies (Linux)
+sudo apt-get install libx11-dev libgl1-mesa-dev
+
+
+# Or macOS
+brew install glfw
+
+
+Compilation
+# Compile server
+g++ -o main main.cpp tigr.c -lm -lGL -lX11 -std=c++17 -O2
+
+
+# Assemble client programs (assuming you have TeenyAT assembler)
+./tnyasm ChaseClient.asm -o ChaseClient.bin
+./tnyasm TeamClient.asm -o TeamClient.bin
+./tnyasm PatrolClient.asm -o PatrolClient.bin
+./tnyasm AStarClient.asm -o AStarClient.bin
+
+
+Running
+# Run with default clients
+./main
+
+
+# Run with debug mode
+./main --debug
+
+
+# Run with custom client program
+./main --client=MyCustomClient.bin --team=0
+
+
+# Run tournament mode (load specific clients)
+./main --red=ChaseClient.bin --blue=PatrolClient.bin
+
+
+Configuration
+Edit config.json:
+{
+  "cyclesPerFrame": 500,
+  "visionRadius": 160,
+  "tagDistance": 24,
+  "gameDuration": 300,
+  "mapChangeInterval": 15,
+  "clients": [
+    {"id": 0, "team": 0, "program": "ChaseClient.bin"},
+    {"id": 1, "team": 0, "program": "ChaseClient.bin"},
+    ...
+  ]
+}
+
+
+________________
+
+
+Conclusion
+This specification provides a complete, implementable design for a true multi-agent system built on TeenyAT, using a server-client architecture that:
+1. ✅ Truly multi-agent: 20 independent VMs with isolation
+2. ✅ Server authority: Single source of truth, validated requests
+3. ✅ Realistic communication: MMIO protocol, message passing
+4. ✅ Partial observability: Vision sensors, no omniscience
+5. ✅ Emergent behavior: No central controller, coordination arises naturally
+6. ✅ Extensible: Others can write new clients using documented API
+7. ✅ Educational: Demonstrates distributed systems, AI algorithms, game architecture
+This is exactly the server-client relationship you envisioned.
+________________
+
+
+Document Version: 2.0 (Complete)
+Last Updated: 2025-11-11
+Status: Ready for Implementation

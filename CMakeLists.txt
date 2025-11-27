@@ -2,12 +2,7 @@ cmake_minimum_required(VERSION 3.10)
 project(teenyat C CXX)
 
 if(MSVC)
-    message(FATAL_ERROR
-            "MSVC detected as the compiler, which is not supported.\n"
-            "Please reconfigure with CMake to use GCC/G++ or Clang.\n"
-            "Once you've installed one of these compiler suites, the\n"
-            "easiest way to do this on Windows is to run the\n"
-            "build.bat file in the TeenyAT root directory.")
+    message(WARNING "MSVC detected as the compiler. The project prefers GCC/Clang, but building with MSVC is allowed for local testing.")
 endif()
 
 set(CMAKE_C_STANDARD 11)
