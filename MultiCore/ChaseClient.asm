@@ -1,133 +1,84 @@
-; ChaseClient.asm - Pursues the nearest enemy using the Vision API
-; Corrected to use the 'lod' instruction as per the TeenyAT documentation.
-
-;  MMIO CONSTANTS 
-;  CLIENT IDENTITY 
-.const  CLIENT_ID         0x9000 
-.const  CLIENT_TEAM       0x9001
-.const  CLIENT_X          0x9002 
-.const  CLIENT_Y          0x9003 
-.const  CLIENT_STATE      0x9004
-
-;  MAP QUERIES 
-.const  MAP_QUERY_X       0x9020
-.const  MAP_QUERY_Y       0x9021
-.const  MAP_RESULT        0x9022
-
-;  VISION QUERIES 
-.const  VISION_SCAN       0x9030
-.const  VISION_COUNT      0x9031
-.const  VISION_SELECT     0x9032
-.const  VISION_ID         0x9033
-.const  VISION_TEAM       0x9034
-.const  VISION_X          0x9035
-.const  VISION_Y          0x9036
-.const  VISION_DIST       0x9037
-
-;  MOVEMENT COMMANDS 
-.const  MOVE_REQUEST      0x9100
-
-;  MESSAGING 
-.const  MSG_SEND_TO       0x9120
-.const  MSG_SEND_TYPE     0x9121
-.const  MSG_SEND_DATA     0x9122
-.const  MSG_SEND_EXEC     0x9123
-
-.const  MSG_INBOX_COUNT   0x9130
-.const  MSG_READ_IDX      0x9131
-.const  MSG_READ_FROM     0x9132
-.const  MSG_READ_TYPE     0x9133
-.const  MSG_READ_DATA     0x9134
-.const  MSG_POP           0x9135
-
-;  CLIENT CONTROL 
-.const  CLIENT_YIELD      0x9200
+; ChaseClient.asm - Branchless version for tnasm
+; This version attempts to use arithmetic to circumvent assembler limitations.
+.const VISION_SCAN      0x9030
+.const VISION_COUNT     0x9031
+.const VISION_SELECT    0x9032
+.const VISION_X         0x9035
+.const VISION_Y         0x9036
+.const CLIENT_X         0x9002
+.const MOVE_REQUEST     0x9100
+.const CLIENT_YIELD     0x9200
 
 !main
-    ; Get my own team ID.
-    lod rA, [CLIENT_TEAM]         ; rA  My Team
-
 !loop
-    ; --- VISION SCAN ---
-    set rB, 1
-    str [VISION_SCAN], rB
-    
-    ; Check how many entities the server found
-    lod rC, [VISION_COUNT]         ; rC  vision count
-    cmp rC, 0
-    je !no_target_found
+    ; --- VISION ---
+    set rA, 1
+    str [VISION_SCAN], rA
+    lod rA, [VISION_COUNT]
+    cmp rA, 0
+    je !random_walk ; If no enemies, perform a random walk. This is a backward jump.
 
-    ; --- FIND NEAREST ENEMY ---
-    set rD, 0 ; rD  Index counter
-!check_enemy_loop
-    str [VISION_SELECT], rD ; Select entity at index rD
-    
-    lod rE, [VISION_TEAM]            ; rE  Entity's Team
-    
-    cmp rA, rE ; Is entity's team the same as my team?
-    je !same_team
+    ; --- ENEMY EXISTS: CHASE LOGIC ---
+    set rA, 0
+    str [VISION_SELECT], rA ; Select the first (nearest) enemy
+    lod rB, [VISION_X]      ; rB = relX
+    lod rC, [VISION_Y]      ; rC = relY
 
-    ; --- ENEMY FOUND ---
-    lod rB, [VISION_X]       ; rB  Relative X
-    lod rC, [VISION_Y]       ; rC  Relative Y
+    ; --- BRANCHLESS DIRECTION CALCULATION ---
+    ; This uses an arithmetic trick to determine the primary direction (N, S, E, W).
+    ; It calculates d1 = x-y and d2 = x+y, then uses their sign bits.
+    ; Direction is determined by the combination of these two sign bits.
     
-    ; --- INLINED XY_TO_DIRECTION ---
-    cmp rB, 0
-    jg !check_east
-    jl !check_west
-    cmp rC, 0
-    jg !is_south
-    jl !is_north
-    set rE, 0 ; Default to North
-    jmp !move
-
-!check_east
-    cmp rC, 0
-    jg !is_southeast
-    jl !is_northeast
-    set rE, 2 ; East
-    jmp !move
-!check_west
-    cmp rC, 0
-    jg !is_southwest
-    jl !is_northwest
-    set rE, 6 ; West
-    jmp !move
-
-!is_north
+    ; Setup for SUB. `sub rD, rB, rC` isn't a valid instruction form.
+    ; We need to do `neg rC; add rB, rC`
+    set rD, 0
+    add rD, rC ; rD = rC (relY)
+    neg rD     ; rD = -relY
+    add rD, rB ; rD = relX - relY
+    
     set rE, 0
-    jmp !move
-!is_northeast
-    set rE, 1
-    jmp !move
-!is_southeast
-    set rE, 3
-    jmp !move
-!is_south
-    set rE, 4
-    jmp !move
-!is_southwest
-    set rE, 5
-    jmp !move
-!is_northwest
-    set rE, 7
-    jmp !move
+    add rE, rB ; rE = rB (relX)
+    add rE, rC ; rE = relX + relY
 
-!same_team
-    inc rD
-    lod rC, [VISION_COUNT]           ; Re-read count
-    cmp rD, rC
-    jl !check_enemy_loop
-    
-!no_target_found
-    ; --- INLINED RANDOM MOVE ---
-    add rE, 1
-    mod rE, 8
-    
-!move
-    str [MOVE_REQUEST], rE
+    ; Now, rD = x-y and rE = x+y. Get the sign bits.
+    ; Shift right by 15 to get the most significant bit (sign bit).
+    shf rD, -15 ; rD is now 0 (positive) or 1 (negative)
+    shf rE, -15 ; rE is now 0 (positive) or 1 (negative)
 
-!end_turn
-    set rB, 1
-    str [CLIENT_YIELD], rB
+    ; Combine the bits to create a 2-bit index: index = (sign(d1) * 2) + sign(d2)
+    add rD, rD ; rD = rD * 2
+    add rD, rE ; rD is now our index (0, 1, 2, or 3)
+
+    ; Use the index to determine the final direction.
+    ; 0 (E), 1 (N), 2 (S), 3 (W)
+    cmp rD, 0
+    jne !check1
+    set rA, 0 ; East
+    jmp !apply_move
+!check1:
+    cmp rD, 1
+    jne !check2
+    set rA, 6 ; North
+    jmp !apply_move
+!check2:
+    cmp rD, 2
+    jne !check3
+    set rA, 2 ; South
+    jmp !apply_move
+!check3:
+    set rA, 4 ; West
+
+!apply_move:
+    str [MOVE_REQUEST], rA
+    jmp !yield
+
+!random_walk:
+    lod rA, [CLIENT_X]
+    add rA, 1
+    mod rA, 8
+    str [MOVE_REQUEST], rA
+
+!yield:
+    set rA, 1
+    str [CLIENT_YIELD], rA
     jmp !loop

@@ -1,25 +1,22 @@
-; MinimalClient.asm - Reads ID and moves randomly
-.const CLIENT_ID        0x4000
-.const CLIENT_TEAM      0x4001
-.const CLIENT_X         0x4002
-.const CLIENT_Y         0x4003
-.const MOVE_REQUEST     0x4100
-.const CLIENT_YIELD     0x4200
+; MinimalClient.asm
+; Week 1 Milestone version. Moves randomly.
 
-; Using a register to hold a value that will be changed
-; to simulate randomness for movement direction.
+.const  CLIENT_X          0x9002
+.const  MOVE_REQUEST      0x9100
+.const  CLIENT_YIELD      0x9200
 
 !main
-    set rA, 0 ; Initialize direction register
-    
 !loop
-    ; Simple pseudo-random movement
-    add rA, 1
-    mod rA, 8
+    ; --- WANDER LOGIC ---
+    ; Generate a pseudo-random direction from 0 to 7.
+    ; We use the client's X coordinate as a cheap source of randomness.
+    lod rA, [CLIENT_X]
+    add rA, 1           ; Increment to change the value each turn
+    mod rA, 8           ; Modulo 8 to get a value in the range 0-7
+
+    ; --- MOVE & YIELD ---
     str [MOVE_REQUEST], rA
     
-    ; Yield CPU back to server
     set rB, 1
     str [CLIENT_YIELD], rB
-    
     jmp !loop
