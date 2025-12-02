@@ -72,32 +72,32 @@
     cmp rC, 0
     jg !is_southeast
     jl !is_northeast
-    set rE, 2 ; East
+    set rE, 0 ; East
     jmp !navigate
 !check_west
     cmp rC, 0
     jg !is_southwest
     jl !is_northwest
-    set rE, 6 ; West
+    set rE, 4 ; West
     jmp !navigate
 
 !is_north
-    set rE, 0
+    set rE, 6
     jmp !navigate
 !is_northeast
-    set rE, 1
+    set rE, 7
     jmp !navigate
 !is_southeast
-    set rE, 3
+    set rE, 1
     jmp !navigate
 !is_south
-    set rE, 4
+    set rE, 2
     jmp !navigate
 !is_southwest
-    set rE, 5
+    set rE, 3
     jmp !navigate
 !is_northwest
-    set rE, 7
+    set rE, 5
     jmp !navigate
 
 !tag_enemy
@@ -110,7 +110,7 @@
 
 !no_target_found
     ; --- NO TARGET, MOVE NORTH ---
-    set rE, 0
+    set rE, 6
     jmp !move ; Don't bother with wall check for random movement
 
 !move
@@ -120,6 +120,7 @@
 !navigate
     ; --- WALL DETECTION ---
     ; rE holds the desired direction. Check if it's a wall.
+    ; Direction encoding: 0=E, 1=SE, 2=S, 3=SW, 4=W, 5=NW, 6=N, 7=NE
 
     ; 1. Get current position in tiles, using rD for the divisor to protect rA
     lod rB, [CLIENT_X]
@@ -133,58 +134,126 @@
     add rA, rB
     set rD, 0  ; rD = rC (target tile Y)
     add rD, rC
-    
-    cmp rE, 0 ; N
-    jne !not_N
-    dec rD
-    jmp !query_map
-!not_N
-    cmp rE, 1 ; NE
-    jne !not_NE
-    dec rD
-    inc rA
-    jmp !query_map
-!not_NE
-    cmp rE, 2 ; E
+
+    cmp rE, 0 ; E
     jne !not_E
     inc rA
     jmp !query_map
 !not_E
-    cmp rE, 3 ; SE
+    cmp rE, 1 ; SE
     jne !not_SE
     inc rD
     inc rA
     jmp !query_map
 !not_SE
-    cmp rE, 4 ; S
+    cmp rE, 2 ; S
     jne !not_S
     inc rD
     jmp !query_map
 !not_S
-    cmp rE, 5 ; SW
+    cmp rE, 3 ; SW
     jne !not_SW
     inc rD
     dec rA
     jmp !query_map
 !not_SW
-    cmp rE, 6 ; W
+    cmp rE, 4 ; W
     jne !not_W
     dec rA
     jmp !query_map
 !not_W
-    ; Must be NW (7)
+    cmp rE, 5 ; NW
+    jne !not_NW
     dec rD
     dec rA
+    jmp !query_map
+!not_NW
+    cmp rE, 6 ; N
+    jne !not_N
+    dec rD
+    jmp !query_map
+!not_N
+    ; Must be NE (7)
+    dec rD
+    inc rA
 
 !query_map
     str [MAP_QUERY_X], rA
     str [MAP_QUERY_Y], rD
     lod rA, [MAP_RESULT]
     cmp rA, 1 ; Is it a wall?
-    je !end_turn ; If so, give up and end turn.
+    je !handle_wall ; If so, try to navigate around it.
 
     ; 3. Path is clear, proceed with move
     jmp !move
+
+!handle_wall
+    ; Wall detected. Try turning right relative to original direction (rE)
+    ; Direction encoding: 0=E, 1=SE, 2=S, 3=SW, 4=W, 5=NW, 6=N, 7=NE
+    add rE, 1
+    and rE, 7 ; Wrap around 8
+
+    ; We need to re-calculate the target tile based on the new direction
+    lod rB, [CLIENT_X]
+    lod rC, [CLIENT_Y]
+    set rD, 32
+    div rB, rD ; rB = my tile X
+    div rC, rD ; rC = my tile Y
+    set rA, 0
+    add rA, rB
+    set rD, 0
+    add rD, rC
+
+    cmp rE, 0 ; E
+    jne !not_E_2
+    inc rA
+    jmp !query_map_2
+!not_E_2
+    cmp rE, 1 ; SE
+    jne !not_SE_2
+    inc rD
+    inc rA
+    jmp !query_map_2
+!not_SE_2
+    cmp rE, 2 ; S
+    jne !not_S_2
+    inc rD
+    jmp !query_map_2
+!not_S_2
+    cmp rE, 3 ; SW
+    jne !not_SW_2
+    inc rD
+    dec rA
+    jmp !query_map_2
+!not_SW_2
+    cmp rE, 4 ; W
+    jne !not_W_2
+    dec rA
+    jmp !query_map_2
+!not_W_2
+    cmp rE, 5 ; NW
+    jne !not_NW_2
+    dec rD
+    dec rA
+    jmp !query_map_2
+!not_NW_2
+    cmp rE, 6 ; N
+    jne !not_N_2
+    dec rD
+    jmp !query_map_2
+!not_N_2
+    ; Must be NE (7)
+    dec rD
+    inc rA
+
+!query_map_2
+    str [MAP_QUERY_X], rA
+    str [MAP_QUERY_Y], rD
+    lod rA, [MAP_RESULT]
+    cmp rA, 1 ; Is it a wall?
+    je !end_turn ; If the second attempt is also a wall, give up.
+
+    jmp !move ; The new path is clear!
 
 !end_turn
     set rB, 1

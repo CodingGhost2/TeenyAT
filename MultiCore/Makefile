@@ -26,9 +26,12 @@ endif
 
 OBJS = main.o teenyat.o tigr.o
 
-.PHONY: all clean
+.PHONY: all clean test run-tests
 
-all: $(EXE) TagClient.bin
+all: $(EXE) ChaseClient.bin TagClient.bin
+
+ChaseClient.bin: ChaseClient.asm
+	.\\tnasm.exe ChaseClient.asm
 
 TagClient.bin: TagClient.asm
 	.\\tnasm.exe TagClient.asm
@@ -48,8 +51,11 @@ teenyat.o: $(TEENYAT_SRC)
 tigr.o: $(TIGR_SRC)
 	$(CC) $(CFLAGS) $(WFLAGS) -c $< -o $@
 
-test: TagClient.bin
+test: ChaseClient.bin TagClient.bin
 	$(CPP) $(CPPFLAGS) $(WFLAGS) -DENABLE_TESTS -o main_test.exe main.cpp tests.cpp $(TEENYAT_SRC) $(TIGR_SRC) $(LDFLAGS)
+
+run-tests: test
+	.\\main_test.exe --run-tests
 
 clean:
 	del /f /q *.o $(EXE)

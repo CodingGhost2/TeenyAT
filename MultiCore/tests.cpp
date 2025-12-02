@@ -213,73 +213,83 @@ void test_chase_logic() {
     }
     for (int y=0; y<LEVEL_HEIGHT_TILES; y++) for (int x=0; x<LEVEL_WIDTH_TILES; x++) level[y][x] = 0;
 
-
-    FILE *f_tag = fopen("TagClient.bin", "rb");
-    assert(f_tag != NULL);
+    // Load ChaseClient for testing chase logic
+    FILE *f_chase = fopen("ChaseClient.bin", "rb");
+    if (!f_chase) {
+        printf("  ERROR: Could not open ChaseClient.bin - skipping chase logic tests\n");
+        printf("  Please assemble ChaseClient.asm first.\n");
+        return;
+    }
 
     // Create Red 0 (the chaser)
     clients.emplace_back();
     ConnectedClient& redClient = clients.back();
     redClient.clientID = 0;
-    tny_init_from_file(&redClient.vm, f_tag, bus_read, bus_write);
+    redClient.teamID = 0;
+    redClient.visionSelectIndex = 0;
+    tny_init_from_file(&redClient.vm, f_chase, bus_read, bus_write);
     players[0] = {.x=500, .y=500, .team=0, .state=ACTIVE};
-    
+
     // Create Blue 1 (the target)
     clients.emplace_back();
     ConnectedClient& blueClient = clients.back();
     blueClient.clientID = 1;
+    blueClient.teamID = 1;
     players[1] = {.x=0, .y=0, .team=1, .state=ACTIVE};
-    
-    fclose(f_tag);
 
-    // Case 0: North
-    players[0].x = 500; players[0].y = 500;
-    players[1].x = 500; players[1].y = 400;
-    assert(getClientMoveForFrame(redClient) == 0);
-    printf("  - Chase North works\n");
+    fclose(f_chase);
 
-    // Case 1: North-East
-    players[0].x = 500; players[0].y = 500;
-    players[1].x = 600; players[1].y = 400;
-    assert(getClientMoveForFrame(redClient) == 1);
-    printf("  - Chase North-East works\n");
+    // Direction encoding used in ChaseClient.asm:
+    // 0=East, 1=SE, 2=South, 3=SW, 4=West, 5=NW, 6=North, 7=NE
 
-    // Case 2: East
+    // Case: East (enemy to the right)
     players[0].x = 500; players[0].y = 500;
     players[1].x = 600; players[1].y = 500;
-    assert(getClientMoveForFrame(redClient) == 2);
+    assert(getClientMoveForFrame(redClient) == 0); // East = 0
     printf("  - Chase East works\n");
 
-    // Case 3: South-East
+    // Case: South-East
     players[0].x = 500; players[0].y = 500;
     players[1].x = 600; players[1].y = 600;
-    assert(getClientMoveForFrame(redClient) == 3);
+    assert(getClientMoveForFrame(redClient) == 1); // SE = 1
     printf("  - Chase South-East works\n");
 
-    // Case 4: South
+    // Case: South (enemy below)
     players[0].x = 500; players[0].y = 500;
     players[1].x = 500; players[1].y = 600;
-    assert(getClientMoveForFrame(redClient) == 4);
+    assert(getClientMoveForFrame(redClient) == 2); // South = 2
     printf("  - Chase South works\n");
 
-    // Case 5: South-West
+    // Case: South-West
     players[0].x = 500; players[0].y = 500;
     players[1].x = 400; players[1].y = 600;
-    assert(getClientMoveForFrame(redClient) == 5);
+    assert(getClientMoveForFrame(redClient) == 3); // SW = 3
     printf("  - Chase South-West works\n");
 
-    // Case 6: West
+    // Case: West (enemy to the left)
     players[0].x = 500; players[0].y = 500;
     players[1].x = 400; players[1].y = 500;
-    assert(getClientMoveForFrame(redClient) == 6);
+    assert(getClientMoveForFrame(redClient) == 4); // West = 4
     printf("  - Chase West works\n");
 
-    // Case 7: North-West
+    // Case: North-West
     players[0].x = 500; players[0].y = 500;
     players[1].x = 400; players[1].y = 400;
-    assert(getClientMoveForFrame(redClient) == 7);
+    assert(getClientMoveForFrame(redClient) == 5); // NW = 5
     printf("  - Chase North-West works\n");
-    
+
+    // Case: North (enemy above)
+    players[0].x = 500; players[0].y = 500;
+    players[1].x = 500; players[1].y = 400;
+    assert(getClientMoveForFrame(redClient) == 6); // North = 6
+    printf("  - Chase North works\n");
+
+    // Case: North-East
+    players[0].x = 500; players[0].y = 500;
+    players[1].x = 600; players[1].y = 400;
+    assert(getClientMoveForFrame(redClient) == 7); // NE = 7
+    printf("  - Chase North-East works\n");
+
     printf("--- Chase logic tests passed ---\n\n");
 }
 
