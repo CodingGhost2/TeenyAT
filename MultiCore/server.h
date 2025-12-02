@@ -82,6 +82,7 @@ struct ConnectedClient {
     int tagTargetID;
     int lastTagResult;
     int lastMoveRequest; // For testing
+    int lastMoveResult;  // 0 = failed, 1 = success (for collision feedback)
     std::vector<VisionResult> visionResults;
 };
 

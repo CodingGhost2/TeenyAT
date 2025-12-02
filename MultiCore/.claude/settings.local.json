@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./build.bat)",
+      "Bash(./tnasm.exe:*)",
+      "Bash(cmd.exe /c \"tnasm.exe ChaseClient.asm\")",
+      "Bash(cmd.exe /c \"tnasm.exe TagClient.asm && tnasm.exe MinimalClient.asm\")",
+      "Bash(cmd.exe /c \"build.bat\")",
+      "Bash(g++:*)",
+      "Bash(C:/2025/CS490/TeenyAT/MultiCore/tnasm.exe C:/2025/CS490/TeenyAT/MultiCore/ChaseClient.asm)",
+      "Bash(powershell.exe -Command \"cd ''C:\\2025\\CS490\\TeenyAT\\MultiCore''; .\\tnasm.exe ChaseClient.asm\")",
+      "Bash(powershell.exe -Command \"cd ''C:\\2025\\CS490\\TeenyAT\\MultiCore''; .\\build.bat\")"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

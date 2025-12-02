@@ -33,7 +33,7 @@ int redScore = 0;
 int blueScore = 0;
 int redTotalScore = 0;   // Cumulative across rounds
 int blueTotalScore = 0;  // Cumulative across rounds
-int gameTimer = 3600; // 60 seconds * 60 FPS
+int gameTimer = 1800; // 30 seconds * 60 FPS
 int mapChangeTimer = 900; // 15 seconds * 60 FPS
 int currentRound = 1;
 const int MAX_ROUNDS = 5;
@@ -554,144 +554,116 @@ void clearMap() {
 }
 
 void generateMap_Arena() {
-    // MAP 1: ARENA - Open center with corner fortifications
+    // MAP 1: ARENA - Very open with small scattered cover
     clearMap();
 
-    // Corner structures (cover for spawns)
-    // Top-left corner
-    for (int x = 3; x < 8; x++) level[5][x] = 1;
-    for (int y = 3; y < 6; y++) level[y][7] = 1;
+    // Small corner covers (not blocking paths)
+    level[4][4] = 1; level[4][5] = 1;
+    level[4][34] = 1; level[4][35] = 1;
+    level[25][4] = 1; level[25][5] = 1;
+    level[25][34] = 1; level[25][35] = 1;
 
-    // Top-right corner
-    for (int x = 32; x < 37; x++) level[5][x] = 1;
-    for (int y = 3; y < 6; y++) level[y][32] = 1;
+    // Small center pillars (with gaps between them)
+    level[13][18] = 1; level[14][18] = 1;
+    level[13][21] = 1; level[14][21] = 1;
+    level[15][18] = 1; level[16][18] = 1;
+    level[15][21] = 1; level[16][21] = 1;
 
-    // Bottom-left corner
-    for (int x = 3; x < 8; x++) level[24][x] = 1;
-    for (int y = 24; y < 27; y++) level[y][7] = 1;
-
-    // Bottom-right corner
-    for (int x = 32; x < 37; x++) level[24][x] = 1;
-    for (int y = 24; y < 27; y++) level[y][32] = 1;
-
-    // Center pillars for cover
-    level[13][18] = 1; level[13][19] = 1; level[14][18] = 1; level[14][19] = 1;
-    level[13][20] = 1; level[13][21] = 1; level[14][20] = 1; level[14][21] = 1;
-    level[15][18] = 1; level[15][19] = 1; level[16][18] = 1; level[16][19] = 1;
-    level[15][20] = 1; level[15][21] = 1; level[16][20] = 1; level[16][21] = 1;
-
-    // Side obstacles
-    level[10][10] = 1; level[10][11] = 1;
-    level[19][10] = 1; level[19][11] = 1;
-    level[10][28] = 1; level[10][29] = 1;
-    level[19][28] = 1; level[19][29] = 1;
+    // Scattered small obstacles (single tiles for cover)
+    level[10][10] = 1;
+    level[19][10] = 1;
+    level[10][29] = 1;
+    level[19][29] = 1;
+    level[14][8] = 1;
+    level[14][31] = 1;
 }
 
 void generateMap_Corridors() {
-    // MAP 2: CORRIDORS - Long hallways with intersections
+    // MAP 2: CORRIDORS - Hallways with MANY openings
     clearMap();
 
-    // Horizontal corridors
+    // Horizontal corridors with multiple gaps
     for (int x = 5; x < 35; x++) {
-        if (x < 10 || (x > 12 && x < 18) || (x > 21 && x < 27) || x > 29) {
+        // Many gaps for passage: at 8, 12, 16, 20, 24, 28, 32
+        if (x % 4 != 0) {
             level[10][x] = 1;
             level[19][x] = 1;
         }
     }
 
-    // Vertical corridors
+    // Vertical corridors with multiple gaps
     for (int y = 5; y < 25; y++) {
-        if (y < 8 || (y > 11 && y < 18) || y > 21) {
+        // Many gaps for passage: at 8, 12, 16, 20
+        if (y % 4 != 0) {
             level[y][13] = 1;
             level[y][26] = 1;
         }
     }
 
-    // Center cross
-    for (int x = 17; x < 23; x++) {
-        level[14][x] = 1;
-        level[15][x] = 1;
-    }
-    for (int y = 12; y < 18; y++) {
-        if (y != 14 && y != 15) {
-            level[y][19] = 1;
-            level[y][20] = 1;
-        }
-    }
+    // Small center cover (not blocking)
+    level[14][19] = 1;
+    level[15][20] = 1;
 }
 
 void generateMap_Fortress() {
-    // MAP 3: FORTRESS - Each team has defensive structures
+    // MAP 3: FORTRESS - Defensive structures with WIDE gates
     clearMap();
 
-    // RED TEAM FORTRESS (top)
-    for (int x = 8; x < 16; x++) level[7][x] = 1;
-    for (int x = 24; x < 32; x++) level[7][x] = 1;
-    for (int y = 4; y < 8; y++) { level[y][8] = 1; level[y][15] = 1; }
-    for (int y = 4; y < 8; y++) { level[y][24] = 1; level[y][31] = 1; }
-    // Fortress gate
-    level[7][11] = 0; level[7][12] = 0;
-    level[7][27] = 0; level[7][28] = 0;
+    // RED TEAM FORTRESS (top) - shorter walls with big gaps
+    for (int x = 10; x < 14; x++) level[7][x] = 1;  // Left section
+    for (int x = 26; x < 30; x++) level[7][x] = 1;  // Right section
+    // Wide open center (columns 14-26 are all open!)
 
-    // BLUE TEAM FORTRESS (bottom)
-    for (int x = 8; x < 16; x++) level[22][x] = 1;
-    for (int x = 24; x < 32; x++) level[22][x] = 1;
-    for (int y = 22; y < 26; y++) { level[y][8] = 1; level[y][15] = 1; }
-    for (int y = 22; y < 26; y++) { level[y][24] = 1; level[y][31] = 1; }
-    // Fortress gate
-    level[22][11] = 0; level[22][12] = 0;
-    level[22][27] = 0; level[22][28] = 0;
+    // BLUE TEAM FORTRESS (bottom) - same pattern
+    for (int x = 10; x < 14; x++) level[22][x] = 1;
+    for (int x = 26; x < 30; x++) level[22][x] = 1;
 
-    // No-man's land obstacles
-    level[14][15] = 1; level[14][16] = 1; level[15][15] = 1; level[15][16] = 1;
-    level[14][23] = 1; level[14][24] = 1; level[15][23] = 1; level[15][24] = 1;
+    // Small scattered cover in no-man's land
+    level[14][15] = 1;
+    level[15][24] = 1;
+    level[12][20] = 1;
+    level[17][19] = 1;
 
-    // Side trenches
-    for (int y = 10; y < 20; y++) {
-        if (y != 14 && y != 15) {
-            level[y][5] = 1;
-            level[y][34] = 1;
-        }
-    }
+    // Side pillars (single tiles, not walls)
+    level[10][5] = 1;
+    level[19][5] = 1;
+    level[10][34] = 1;
+    level[19][34] = 1;
 }
 
 void generateMap_Crossfire() {
-    // MAP 4: CROSSFIRE - Diagonal walls creating crossfire zones
+    // MAP 4: CROSSFIRE - Short diagonal segments with big gaps
     clearMap();
 
-    // Diagonal barriers (top-left to center)
-    for (int i = 0; i < 8; i++) {
-        level[6 + i][8 + i] = 1;
-        level[7 + i][8 + i] = 1;
+    // Short diagonal barriers (top-left) - only 3 tiles each with gaps
+    for (int i = 0; i < 3; i++) {
+        level[8 + i][10 + i] = 1;
     }
 
-    // Diagonal barriers (top-right to center)
-    for (int i = 0; i < 8; i++) {
-        level[6 + i][31 - i] = 1;
-        level[7 + i][31 - i] = 1;
+    // Short diagonal barriers (top-right)
+    for (int i = 0; i < 3; i++) {
+        level[8 + i][29 - i] = 1;
     }
 
-    // Diagonal barriers (bottom-left to center)
-    for (int i = 0; i < 8; i++) {
-        level[22 - i][8 + i] = 1;
-        level[23 - i][8 + i] = 1;
+    // Short diagonal barriers (bottom-left)
+    for (int i = 0; i < 3; i++) {
+        level[20 - i][10 + i] = 1;
     }
 
-    // Diagonal barriers (bottom-right to center)
-    for (int i = 0; i < 8; i++) {
-        level[22 - i][31 - i] = 1;
-        level[23 - i][31 - i] = 1;
+    // Short diagonal barriers (bottom-right)
+    for (int i = 0; i < 3; i++) {
+        level[20 - i][29 - i] = 1;
     }
 
-    // Center safe zone
-    level[14][19] = 1; level[14][20] = 1;
-    level[15][19] = 1; level[15][20] = 1;
+    // Small center cover
+    level[14][19] = 1;
+    level[15][20] = 1;
 
-    // Corner cover
-    level[4][4] = 1; level[4][5] = 1; level[5][4] = 1;
-    level[4][34] = 1; level[4][35] = 1; level[5][35] = 1;
-    level[24][4] = 1; level[25][4] = 1; level[25][5] = 1;
-    level[24][35] = 1; level[25][35] = 1; level[25][34] = 1;
+    // Tiny corner markers
+    level[4][4] = 1;
+    level[4][35] = 1;
+    level[25][4] = 1;
+    level[25][35] = 1;
 }
 
 void loadMap(int mapIndex) {
@@ -715,28 +687,46 @@ void initializeWorld() {
     // Load a random map
     loadRandomMap();
 
-    // Initialize players in safe spawn areas
+    // Initialize players scattered across their team's half of the map
     for (int i = 0; i < NUM_CLIENTS; i++) {
         players[i].team = (i < NUM_CLIENTS / 2) ? 0 : 1;
         players[i].state = ACTIVE;
         players[i].freezeTimer = 0;
         players[i].immunityTimer = 0;
 
-        // Spawn locations - spread out more
         int spawnTileX, spawnTileY;
-        if (players[i].team == 0) { // Red Team spawns top area
-            spawnTileX = 2 + (i % 5) * 2;  // Spread across top
-            spawnTileY = 2 + (rand() % 2);
-        } else { // Blue Team spawns bottom area
-            int idx = i - NUM_CLIENTS / 2;
-            spawnTileX = 33 + (idx % 5) * (-2);  // Spread across bottom
-            spawnTileY = 26 + (rand() % 2);
-        }
+        int attempts = 0;
+        const int MAX_ATTEMPTS = 200;
 
-        // Make sure spawn is not on a wall
-        while (level[spawnTileY][spawnTileX] == 1) {
-            spawnTileX = (spawnTileX + 1) % (LEVEL_WIDTH_TILES - 2) + 1;
-        }
+        do {
+            if (players[i].team == 0) { // Red Team - left half
+                spawnTileX = 2 + (rand() % 16);   // columns 2-17
+                spawnTileY = 2 + (rand() % 24);   // rows 2-25
+            } else { // Blue Team - right half
+                spawnTileX = 22 + (rand() % 16);  // columns 22-37
+                spawnTileY = 2 + (rand() % 24);   // rows 2-25
+            }
+            attempts++;
+
+            // Check wall and player collision
+            if (level[spawnTileY][spawnTileX] == 0) {
+                float newX = spawnTileX * TILE_SIZE + 16;
+                float newY = spawnTileY * TILE_SIZE + 16;
+
+                // Check distance from all already-spawned players
+                bool tooClose = false;
+                for (int j = 0; j < i; j++) {
+                    float dx = newX - players[j].x;
+                    float dy = newY - players[j].y;
+                    float dist = sqrt(dx*dx + dy*dy);
+                    if (dist < 64.0f) {  // Minimum 2 tiles apart
+                        tooClose = true;
+                        break;
+                    }
+                }
+                if (!tooClose) break;
+            }
+        } while (attempts < MAX_ATTEMPTS);
 
         players[i].x = spawnTileX * TILE_SIZE + 16;
         players[i].y = spawnTileY * TILE_SIZE + 16;
@@ -745,61 +735,168 @@ void initializeWorld() {
 
 
 
-void processMovementRequest(ConnectedClient* client, int direction) {
-    int id = client->clientID;
-    
-    // Check if client can move
-    if (players[id].state == FROZEN) {
-        return; // Frozen players can't move
+// Helper: Check if a tile position is walkable (no wall)
+bool isTileWalkable(int tileX, int tileY) {
+    if (tileX < 1 || tileX >= LEVEL_WIDTH_TILES - 1 ||
+        tileY < 1 || tileY >= LEVEL_HEIGHT_TILES - 1) {
+        return false;
     }
-    
-    // Calculate new position
-    const float MOVE_SPEED = 3.0f;
-    const int dx[] = {1, 1, 0, -1, -1, -1, 0, 1}; // E, SE, S, SW, W, NW, N, NE
-    const int dy[] = {0, 1, 1, 1, 0, -1, -1, -1};
+    return level[tileY][tileX] != 1;
+}
 
-    direction = direction % 8; // ensure direction is 0-7
-    
-    float newX = players[id].x + dx[direction] * MOVE_SPEED;
-    float newY = players[id].y + dy[direction] * MOVE_SPEED;
-    
-    printf("[COLLISION] Client %d at (%.2f, %.2f) attempting move %d to (%.2f, %.2f)\n", id, players[id].x, players[id].y, direction, newX, newY);
+// Helper: Check if a pixel position is valid (no wall, in bounds)
+bool isPositionClear(float x, float y) {
+    // Check the corners of the player's bounding box
+    int margin = 6; // pixels from center to check
+    int tileX1 = (int)((x - margin) / TILE_SIZE);
+    int tileY1 = (int)((y - margin) / TILE_SIZE);
+    int tileX2 = (int)((x + margin) / TILE_SIZE);
+    int tileY2 = (int)((y + margin) / TILE_SIZE);
 
-    // Collision detection (server authority)
-    int tileX = (int)(newX / TILE_SIZE);
-    int tileY = (int)(newY / TILE_SIZE);
-    
-    // Bounds check
-    if (tileX < 0 || tileX >= LEVEL_WIDTH_TILES || 
-        tileY < 0 || tileY >= LEVEL_HEIGHT_TILES) {
-        printf("[COLLISION] Client %d failed: Out of bounds.\n", id);
-        return; // Out of bounds
-    }
-    
-    // Wall check
-    if (level[tileY][tileX] == 1) {
-        printf("[COLLISION] Client %d failed: Wall collision at tile (%d, %d).\n", id, tileX, tileY);
-        return; // Wall collision
-    }
-    
-    // Check player collision (prevent overlapping)
+    return isTileWalkable(tileX1, tileY1) && isTileWalkable(tileX2, tileY1) &&
+           isTileWalkable(tileX1, tileY2) && isTileWalkable(tileX2, tileY2);
+}
+
+// Helper: Check player collision
+// Only blocks movement for teammates - enemies can overlap for tagging
+bool hasPlayerCollision(int id, float x, float y) {
+    int myTeam = players[id].team;
     for (int i = 0; i < NUM_CLIENTS; i++) {
         if (i == id) continue;
-        
-        float dx_p = newX - players[i].x;
-        float dy_p = newY - players[i].y;
+        if (players[i].state == FROZEN || players[i].state == DISCONNECTED) continue;
+
+        float dx_p = x - players[i].x;
+        float dy_p = y - players[i].y;
         float dist = sqrt(dx_p*dx_p + dy_p*dy_p);
-        
-        if (dist < 16.0f) { // Player size collision
-            printf("[COLLISION] Client %d failed: Player collision with client %d.\n", id, i);
-            return; // Too close to another player
+
+        // Teammates block each other to prevent stacking
+        // Enemies can get very close (for tagging)
+        float blockDist = (players[i].team == myTeam) ? 12.0f : 6.0f;
+        if (dist < blockDist) {
+            return true;
         }
     }
-    
-    // Movement approved by server
-    printf("[MOVEMENT] Client %d approved. New position: (%.2f, %.2f)\n", id, newX, newY);
-    players[id].x = newX;
-    players[id].y = newY;
+    return false;
+}
+
+// Helper: Full validity check
+bool isValidPosition(int id, float x, float y) {
+    return isPositionClear(x, y) && !hasPlayerCollision(id, x, y);
+}
+
+void processMovementRequest(ConnectedClient* client, int direction) {
+    int id = client->clientID;
+    client->lastMoveResult = 0;
+
+    if (players[id].state == FROZEN) {
+        return;
+    }
+
+    const float MOVE_SPEED = 2.5f;
+    direction = direction % 8;
+
+    float myX = players[id].x;
+    float myY = players[id].y;
+
+    // Direction vectors (E, SE, S, SW, W, NW, N, NE)
+    const float dirX[] = {1, 0.707f, 0, -0.707f, -1, -0.707f, 0, 0.707f};
+    const float dirY[] = {0, 0.707f, 1, 0.707f, 0, -0.707f, -1, -0.707f};
+
+    // === PHASE 1: Try the exact requested direction ===
+    float newX = myX + dirX[direction] * MOVE_SPEED;
+    float newY = myY + dirY[direction] * MOVE_SPEED;
+
+    if (isValidPosition(id, newX, newY)) {
+        players[id].x = newX;
+        players[id].y = newY;
+        client->lastMoveResult = 1;
+        return;
+    }
+
+    // === PHASE 2: Try adjacent directions (wall sliding) ===
+    int leftDir = (direction + 7) % 8;  // Counter-clockwise
+    int rightDir = (direction + 1) % 8; // Clockwise
+
+    // Try sliding along walls
+    newX = myX + dirX[leftDir] * MOVE_SPEED;
+    newY = myY + dirY[leftDir] * MOVE_SPEED;
+    if (isValidPosition(id, newX, newY)) {
+        players[id].x = newX;
+        players[id].y = newY;
+        client->lastMoveResult = 1;
+        return;
+    }
+
+    newX = myX + dirX[rightDir] * MOVE_SPEED;
+    newY = myY + dirY[rightDir] * MOVE_SPEED;
+    if (isValidPosition(id, newX, newY)) {
+        players[id].x = newX;
+        players[id].y = newY;
+        client->lastMoveResult = 1;
+        return;
+    }
+
+    // === PHASE 3: Try perpendicular directions ===
+    int perpLeft = (direction + 6) % 8;
+    int perpRight = (direction + 2) % 8;
+
+    newX = myX + dirX[perpLeft] * MOVE_SPEED;
+    newY = myY + dirY[perpLeft] * MOVE_SPEED;
+    if (isValidPosition(id, newX, newY)) {
+        players[id].x = newX;
+        players[id].y = newY;
+        client->lastMoveResult = 1;
+        return;
+    }
+
+    newX = myX + dirX[perpRight] * MOVE_SPEED;
+    newY = myY + dirY[perpRight] * MOVE_SPEED;
+    if (isValidPosition(id, newX, newY)) {
+        players[id].x = newX;
+        players[id].y = newY;
+        client->lastMoveResult = 1;
+        return;
+    }
+
+    // === PHASE 4: Try any direction with full speed ===
+    for (int d = 0; d < 8; d++) {
+        newX = myX + dirX[d] * MOVE_SPEED;
+        newY = myY + dirY[d] * MOVE_SPEED;
+        if (isValidPosition(id, newX, newY)) {
+            players[id].x = newX;
+            players[id].y = newY;
+            client->lastMoveResult = 1;
+            return;
+        }
+    }
+
+    // === PHASE 5: Try smaller steps in any direction ===
+    for (int d = 0; d < 8; d++) {
+        newX = myX + dirX[d] * MOVE_SPEED * 0.4f;
+        newY = myY + dirY[d] * MOVE_SPEED * 0.4f;
+        if (isValidPosition(id, newX, newY)) {
+            players[id].x = newX;
+            players[id].y = newY;
+            client->lastMoveResult = 1;
+            return;
+        }
+    }
+
+    // === PHASE 6: Random jitter to escape stuck positions ===
+    for (int attempt = 0; attempt < 16; attempt++) {
+        float angle = (rand() % 360) * M_PI / 180.0f;
+        float dist = 1.0f + (rand() % 20) / 10.0f;
+        newX = myX + dist * cos(angle);
+        newY = myY + dist * sin(angle);
+        if (isValidPosition(id, newX, newY)) {
+            players[id].x = newX;
+            players[id].y = newY;
+            client->lastMoveResult = 1;
+            return;
+        }
+    }
+
+    // Truly stuck - can't move at all
 }
 
 //Bresenham's Line Algorithm for Line of Sight (pixel-based)
@@ -871,20 +968,33 @@ void sendMessage(int fromID, int toID, int type, int data) {
 
 void respawnPlayer(int clientID) {
     int team = players[clientID].team;
-   
+
     int spawnTileX, spawnTileY;
+    int attempts = 0;
+    const int MAX_ATTEMPTS = 200;
+
     do {
-        if (team == 0) { // Red team: top-left corner (tiles 2-4)
-            spawnTileX = 2 + (rand() % 3);
-            spawnTileY = 2 + (rand() % 3);
-        } else { // Blue team: bottom-right corner (tiles 35-37 for X, 25-27 for Y)
-            spawnTileX = 35 + (rand() % 3);
-            spawnTileY = 25 + (rand() % 3);
+        if (team == 0) { // Red team: spread across left side
+            spawnTileX = 2 + (rand() % 10);  // columns 2-11
+            spawnTileY = 2 + (rand() % 24);  // rows 2-25
+        } else { // Blue team: spread across right side
+            spawnTileX = 26 + (rand() % 10); // columns 26-35
+            spawnTileY = 2 + (rand() % 24);  // rows 2-25
         }
-    } while (level[spawnTileY][spawnTileX] != 0); // Ensure spawning in an empty space
-   
-    players[clientID].x = spawnTileX * TILE_SIZE + 8; // Center player in tile
-    players[clientID].y = spawnTileY * TILE_SIZE + 8;
+        attempts++;
+
+        // Check both wall collision and player collision
+        if (level[spawnTileY][spawnTileX] == 0) {
+            float newX = spawnTileX * TILE_SIZE + 16;
+            float newY = spawnTileY * TILE_SIZE + 16;
+            if (!hasPlayerCollision(clientID, newX, newY)) {
+                break; // Valid position found
+            }
+        }
+    } while (attempts < MAX_ATTEMPTS);
+
+    players[clientID].x = spawnTileX * TILE_SIZE + 16;
+    players[clientID].y = spawnTileY * TILE_SIZE + 16;
 }
 
 int getChaseClientMove(ConnectedClient* client) {
@@ -1192,6 +1302,9 @@ void bus_read(teenyat *t, tny_uword addr, tny_word *data, uint16_t *delay) {
                 data->u = 0;
             }
             break;
+        case 0x9101: // MOVE_RESULT (0 = failed, 1 = success)
+            data->u = client->lastMoveResult;
+            break;
         default:
             data->u = 0;
             break;
@@ -1302,7 +1415,7 @@ void startNewRound() {
     // Reset for new round
     redScore = 0;
     blueScore = 0;
-    gameTimer = 3600; // Reset timer
+    gameTimer = 1800; // 30 seconds * 60 FPS
 
     // Load new random map
     loadRandomMap();
@@ -1335,6 +1448,10 @@ void startNewRound() {
         stuckTrackers[i] = StuckTracker();
         stuckTrackers[i].lastX[0] = players[i].x;
         stuckTrackers[i].lastY[0] = players[i].y;
+
+        // Reset TeenyAT VM to start fresh for new round
+        clients[i].state = ACTIVE;
+        tny_reset(&clients[i].vm);
     }
 
     printf("\n>>> ROUND %d STARTING! <<<\n\n", currentRound);
@@ -1364,6 +1481,49 @@ void updateGame() {
         }
     }
 
+    // --- SEPARATION FORCE: Gently push apart players that are too close ---
+    // Only applies to same-team players to prevent teammate collisions
+    // Enemy collisions should result in tags, not separation
+    const float SEPARATION_DIST = 20.0f;  // Only push if VERY close (same team blocking)
+    const float PUSH_STRENGTH = 0.5f;     // Gentle push to avoid shaking
+
+    for (int i = 0; i < NUM_CLIENTS; i++) {
+        if (players[i].state == FROZEN || players[i].state == DISCONNECTED) continue;
+
+        for (int j = i + 1; j < NUM_CLIENTS; j++) {
+            if (players[j].state == FROZEN || players[j].state == DISCONNECTED) continue;
+
+            // Only separate teammates - enemies should be able to get close for tagging
+            if (players[i].team != players[j].team) continue;
+
+            float dx = players[j].x - players[i].x;
+            float dy = players[j].y - players[i].y;
+            float dist = sqrt(dx*dx + dy*dy);
+
+            if (dist > 0 && dist < SEPARATION_DIST) {
+                // Normalize and push apart gently
+                float pushX = (dx / dist) * PUSH_STRENGTH;
+                float pushY = (dy / dist) * PUSH_STRENGTH;
+
+                // Try to push player i away (opposite direction)
+                float newXi = players[i].x - pushX;
+                float newYi = players[i].y - pushY;
+                if (isPositionClear(newXi, newYi)) {
+                    players[i].x = newXi;
+                    players[i].y = newYi;
+                }
+
+                // Try to push player j away
+                float newXj = players[j].x + pushX;
+                float newYj = players[j].y + pushY;
+                if (isPositionClear(newXj, newYj)) {
+                    players[j].x = newXj;
+                    players[j].y = newYj;
+                }
+            }
+        }
+    }
+
     updateDynamicMap();
 }
 
@@ -1372,6 +1532,30 @@ void updateGame() {
 // ============================================================================
 // Main Loop
 // ============================================================================
+
+// Client program assignments - which ASM binary each client uses
+const char* clientPrograms[] = {
+    "ChaseClient.bin",    // Client 0 - Red Team
+    "TagClient.bin",      // Client 1 - Red Team
+    "MinimalClient.bin",  // Client 2 - Red Team
+    "ChaseClient.bin",    // Client 3 - Red Team
+    "TagClient.bin",      // Client 4 - Red Team
+    "MinimalClient.bin",  // Client 5 - Red Team
+    "ChaseClient.bin",    // Client 6 - Red Team
+    "TagClient.bin",      // Client 7 - Red Team
+    "MinimalClient.bin",  // Client 8 - Red Team
+    "ChaseClient.bin",    // Client 9 - Red Team
+    "TagClient.bin",      // Client 10 - Blue Team
+    "MinimalClient.bin",  // Client 11 - Blue Team
+    "ChaseClient.bin",    // Client 12 - Blue Team
+    "TagClient.bin",      // Client 13 - Blue Team
+    "MinimalClient.bin",  // Client 14 - Blue Team
+    "ChaseClient.bin",    // Client 15 - Blue Team
+    "TagClient.bin",      // Client 16 - Blue Team
+    "MinimalClient.bin",  // Client 17 - Blue Team
+    "ChaseClient.bin",    // Client 18 - Blue Team
+    "TagClient.bin",      // Client 19 - Blue Team
+};
 
 int main(int argc, char *argv[]) {
 #ifdef ENABLE_TESTS
@@ -1385,7 +1569,7 @@ int main(int argc, char *argv[]) {
     clients.reserve(NUM_CLIENTS);
     stuckTrackers.resize(NUM_CLIENTS);  // Initialize stuck trackers
 
-    // --- Initialize clients for tactical movement ---
+    // --- Initialize clients with TeenyAT VMs ---
     for (int i = 0; i < NUM_CLIENTS; i++) {
         clients.emplace_back();
         ConnectedClient& client = clients.back();
@@ -1396,6 +1580,21 @@ int main(int argc, char *argv[]) {
         client.mapQueryX = 0;
         client.mapQueryY = 0;
         client.lastMoveRequest = -1;
+
+        // Load the appropriate ASM binary for this client
+        const char* programFile = clientPrograms[i % 20];
+        FILE* binFile = fopen(programFile, "rb");
+        if (binFile) {
+            if (!tny_init_unclocked(&client.vm, binFile, bus_read, bus_write)) {
+                fprintf(stderr, "Failed to initialize VM for client %d with %s\n", i, programFile);
+            } else {
+                printf("[INIT] Client %d loaded %s (Team %s)\n", i, programFile,
+                       client.teamID == 0 ? "RED" : "BLUE");
+            }
+            fclose(binFile);
+        } else {
+            fprintf(stderr, "Failed to open %s for client %d\n", programFile, i);
+        }
 
         // Initialize stuck tracker with starting position
         stuckTrackers[i].lastX[0] = players[i].x;
@@ -1417,11 +1616,29 @@ int main(int argc, char *argv[]) {
     printf("  Blue Team: Clients %d-%d\n", NUM_CLIENTS/2, NUM_CLIENTS - 1);
     printf("=====================================================\n\n");
 
-    Tigr* screen = tigrWindow(SCREEN_WIDTH_PIXELS, SCREEN_HEIGHT_PIXELS, "Tactical Tag War", 0);
+    Tigr* screen = tigrWindow(SCREEN_WIDTH_PIXELS, SCREEN_HEIGHT_PIXELS, "Tactical Tag War - Multiagent System", 0);
     while (!tigrClosed(screen)) {
-        // Execute tactical movement for each client
+        // === MULTIAGENT SYSTEM: Execute each client's TeenyAT VM ===
         for (int i = 0; i < NUM_CLIENTS; i++) {
-            tacticalMove(i, CHASE_SPEED);
+            // Skip frozen/disconnected players - their VMs don't run
+            if (players[i].state == FROZEN || players[i].state == DISCONNECTED) {
+                continue;
+            }
+
+            // Reset client state for this frame (clear YIELDED status)
+            if (clients[i].state == YIELDED) {
+                clients[i].state = ACTIVE;
+            }
+
+            // Execute VM cycles until client yields or hits cycle limit
+            // The VM will call bus_write(MOVE_REQUEST) which calls processMovementRequest()
+            // Server-side collision detection happens inside processMovementRequest()
+            for (int cycle = 0; cycle < CYCLES_PER_FRAME; cycle++) {
+                if (clients[i].state == YIELDED) {
+                    break;  // Client yielded control, stop executing
+                }
+                tny_clock(&clients[i].vm);
+            }
         }
 
         updateGame();

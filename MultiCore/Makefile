@@ -28,13 +28,16 @@ OBJS = main.o teenyat.o tigr.o
 
 .PHONY: all clean test run-tests
 
-all: $(EXE) ChaseClient.bin TagClient.bin
+all: $(EXE) ChaseClient.bin TagClient.bin MinimalClient.bin
 
 ChaseClient.bin: ChaseClient.asm
 	.\\tnasm.exe ChaseClient.asm
 
 TagClient.bin: TagClient.asm
 	.\\tnasm.exe TagClient.asm
+
+MinimalClient.bin: MinimalClient.asm
+	.\\tnasm.exe MinimalClient.asm
 
 $(EXE): $(OBJS)
 	$(CPP) $^ -o $@ $(LDFLAGS)
