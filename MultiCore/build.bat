@@ -26,27 +26,10 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo [3/4] Assembling client programs...
-.\tnasm ChaseClient.asm
-if errorlevel 1 (
-    echo ERROR: Failed to assemble ChaseClient.asm
-    pause
-    exit /b 1
-)
-.\tnasm TagClient.asm
-if errorlevel 1 (
-    echo ERROR: Failed to assemble TagClient.asm
-    pause
-    exit /b 1
-)
-.\tnasm MinimalClient.asm
-if errorlevel 1 (
-    echo ERROR: Failed to assemble MinimalClient.asm
-    pause
-    exit /b 1
-)
-
-echo [4/5] Compiling main.cpp...
+echo [3/4] Compiling main.cpp...
+\tnasm ChaseClient.asm
+\tnasm TagClient.asm
+\tnasm MinimalClient.asm
 g++ -std=c++17 -I../ -I../tigr-master/tigr-master -Wall -Wno-unused-variable -c main.cpp -o main.o
 if errorlevel 1 (
     echo ERROR: Failed to compile main.cpp
@@ -55,7 +38,7 @@ if errorlevel 1 (
 )
 
 REM Link everything
-echo [5/5] Linking main.exe...
+echo [4/4] Linking main.exe...
 g++ main.o teenyat.o tigr.o -o main.exe -lopengl32 -lgdi32
 if errorlevel 1 (
     echo ERROR: Failed to link main.exe
@@ -70,15 +53,15 @@ echo =====================================================
 echo.
 echo   Run: main.exe
 echo.
-echo   MULTIAGENT SYSTEM FEATURES:
-echo   - 20 TeenyAT VM clients (10 per team)
-echo   - 3 different ASM client programs:
-echo       * ChaseClient.asm  - Direct pursuit
-echo       * TagClient.asm    - Center-focused tagger
-echo       * MinimalClient.asm - Smart wanderer
-echo   - Server-authoritative collision detection
-echo   - MOVE_RESULT feedback for collision recovery
-echo   - Vision system with line-of-sight
-echo   - 4 rotating battlefield maps
+echo   FEATURES:
+echo   - Maze battlefield with walls and corridors
+echo   - Both teams can tag each other
+echo   - 4 AI behavior types:
+echo       * AGGRESSOR - Direct chase
+echo       * FLANKER   - Approach from angles
+echo       * DEFENDER  - Guard spawn area
+echo       * PACK      - Team-based attacks
+echo   - Retreat when outnumbered
+echo   - Wall sliding movement
 echo.
 echo =====================================================
