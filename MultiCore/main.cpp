@@ -1,4 +1,4 @@
-#define _USE_MATH_DEFINES  // For M_PI on Windows
+#define _USE_MATH_DEFINES 
 #include <iostream>
 #include <vector>
 #include <string>
@@ -1533,7 +1533,25 @@ void updateGame() {
 // Main Loop
 // ============================================================================
 
-// Client program assignments - which ASM binary each client uses
+// ============================================================================
+// DEMO SELECTOR - Change this value to switch demos!
+// ============================================================================
+// DEMO 0: Original mixed configuration (default)
+// DEMO 1: Pure Chaos - All Chase vs All Chase (shows pure aggression)
+// DEMO 2: Hunters vs Scouts - Chase vs Minimal (pursuit vs patrol)
+// DEMO 3: Control vs Chaos - Tag vs Chase (positioning vs aggression)
+// DEMO 4: Coverage vs Control - Minimal vs Tag (exploration vs territorial)
+// DEMO 5: Meta Game - Balanced Red vs Heavy-Chase Blue
+// DEMO 6: Chase Showcase - All ChaseClient only
+// DEMO 7: Tag Showcase - All TagClient only
+// DEMO 8: Minimal Showcase - All MinimalClient only
+// ============================================================================
+#define DEMO_MODE 0
+// ============================================================================
+
+// Demo configurations - Red Team (0-9), Blue Team (10-19)
+#if DEMO_MODE == 0
+// DEMO 0: Original mixed configuration
 const char* clientPrograms[] = {
     "ChaseClient.bin",    // Client 0 - Red Team
     "TagClient.bin",      // Client 1 - Red Team
@@ -1556,6 +1574,83 @@ const char* clientPrograms[] = {
     "ChaseClient.bin",    // Client 18 - Blue Team
     "TagClient.bin",      // Client 19 - Blue Team
 };
+
+#elif DEMO_MODE == 1
+// DEMO 1: Pure Chaos - All Chase vs All Chase
+// Shows: What happens with pure aggression, chaotic combat, luck-based
+const char* clientPrograms[] = {
+    "ChaseClient.bin", "ChaseClient.bin", "ChaseClient.bin", "ChaseClient.bin", "ChaseClient.bin",
+    "ChaseClient.bin", "ChaseClient.bin", "ChaseClient.bin", "ChaseClient.bin", "ChaseClient.bin",
+    "ChaseClient.bin", "ChaseClient.bin", "ChaseClient.bin", "ChaseClient.bin", "ChaseClient.bin",
+    "ChaseClient.bin", "ChaseClient.bin", "ChaseClient.bin", "ChaseClient.bin", "ChaseClient.bin",
+};
+
+#elif DEMO_MODE == 2
+// DEMO 2: Hunters vs Scouts - Red Chase vs Blue Minimal
+// Shows: Direct pursuit vs distributed patrol coverage
+const char* clientPrograms[] = {
+    "ChaseClient.bin", "ChaseClient.bin", "ChaseClient.bin", "ChaseClient.bin", "ChaseClient.bin",
+    "ChaseClient.bin", "ChaseClient.bin", "ChaseClient.bin", "ChaseClient.bin", "ChaseClient.bin",
+    "MinimalClient.bin", "MinimalClient.bin", "MinimalClient.bin", "MinimalClient.bin", "MinimalClient.bin",
+    "MinimalClient.bin", "MinimalClient.bin", "MinimalClient.bin", "MinimalClient.bin", "MinimalClient.bin",
+};
+
+#elif DEMO_MODE == 3
+// DEMO 3: Control vs Chaos - Red Tag vs Blue Chase
+// Shows: Strategic center positioning vs reactive pursuit
+const char* clientPrograms[] = {
+    "TagClient.bin", "TagClient.bin", "TagClient.bin", "TagClient.bin", "TagClient.bin",
+    "TagClient.bin", "TagClient.bin", "TagClient.bin", "TagClient.bin", "TagClient.bin",
+    "ChaseClient.bin", "ChaseClient.bin", "ChaseClient.bin", "ChaseClient.bin", "ChaseClient.bin",
+    "ChaseClient.bin", "ChaseClient.bin", "ChaseClient.bin", "ChaseClient.bin", "ChaseClient.bin",
+};
+
+#elif DEMO_MODE == 4
+// DEMO 4: Coverage vs Control - Red Minimal vs Blue Tag
+// Shows: Map exploration/patrol vs territorial chokepoint control
+const char* clientPrograms[] = {
+    "MinimalClient.bin", "MinimalClient.bin", "MinimalClient.bin", "MinimalClient.bin", "MinimalClient.bin",
+    "MinimalClient.bin", "MinimalClient.bin", "MinimalClient.bin", "MinimalClient.bin", "MinimalClient.bin",
+    "TagClient.bin", "TagClient.bin", "TagClient.bin", "TagClient.bin", "TagClient.bin",
+    "TagClient.bin", "TagClient.bin", "TagClient.bin", "TagClient.bin", "TagClient.bin",
+};
+
+#elif DEMO_MODE == 5
+// DEMO 5: Meta Game - Balanced Red vs Heavy-Chase Blue
+// Shows: Team composition matters - balanced vs specialized
+// Red: 3 Chase + 4 Tag + 3 Minimal (balanced)
+// Blue: 6 Chase + 2 Tag + 2 Minimal (aggression-heavy)
+const char* clientPrograms[] = {
+    "ChaseClient.bin", "ChaseClient.bin", "ChaseClient.bin",
+    "TagClient.bin", "TagClient.bin", "TagClient.bin", "TagClient.bin",
+    "MinimalClient.bin", "MinimalClient.bin", "MinimalClient.bin",
+    "ChaseClient.bin", "ChaseClient.bin", "ChaseClient.bin", "ChaseClient.bin", "ChaseClient.bin", "ChaseClient.bin",
+    "TagClient.bin", "TagClient.bin",
+    "MinimalClient.bin", "MinimalClient.bin",
+};
+
+
+#elif DEMO_MODE == 6
+// DEMO 7: Tag Showcase - All TagClient only
+// Shows: TagClient behavior - moves north when no target, strategic positioning
+const char* clientPrograms[] = {
+    "TagClient.bin", "TagClient.bin", "TagClient.bin", "TagClient.bin", "TagClient.bin",
+    "TagClient.bin", "TagClient.bin", "TagClient.bin", "TagClient.bin", "TagClient.bin",
+    "TagClient.bin", "TagClient.bin", "TagClient.bin", "TagClient.bin", "TagClient.bin",
+    "TagClient.bin", "TagClient.bin", "TagClient.bin", "TagClient.bin", "TagClient.bin",
+};
+
+#elif DEMO_MODE == 7
+// DEMO 8: Minimal Showcase - All MinimalClient only
+// Shows: MinimalClient behavior - smart patrol patterns, map coverage
+const char* clientPrograms[] = {
+    "MinimalClient.bin", "MinimalClient.bin", "MinimalClient.bin", "MinimalClient.bin", "MinimalClient.bin",
+    "MinimalClient.bin", "MinimalClient.bin", "MinimalClient.bin", "MinimalClient.bin", "MinimalClient.bin",
+    "MinimalClient.bin", "MinimalClient.bin", "MinimalClient.bin", "MinimalClient.bin", "MinimalClient.bin",
+    "MinimalClient.bin", "MinimalClient.bin", "MinimalClient.bin", "MinimalClient.bin", "MinimalClient.bin",
+};
+
+#endif
 
 int main(int argc, char *argv[]) {
 #ifdef ENABLE_TESTS
